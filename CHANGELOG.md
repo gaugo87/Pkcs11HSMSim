@@ -1,3 +1,11 @@
+# Unreleased
+
+- Ajout d'un test ML-DSA-44/65/87 : interopérabilité EVP, multipart,
+  wrapping/unwrapping AES, PKCS#12 et rechargement du token.
+- Script PowerShell VS2022/OpenSSL 3.5+ avec sélection de l'installation,
+  configuration providers optionnelle, CTest et journal de diagnostic.
+- Ces nouveaux parcours restent à valider dans l'environnement Windows cible.
+
 # 0.6.0 — Official PKCS#11 3.2 headers and interface discovery
 
 - User-provided OASIS pkcs11.h / pkcs11t.h / pkcs11f.h included byte-for-byte

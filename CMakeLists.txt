@@ -30,6 +30,11 @@ else()
 endif()
 
 enable_testing()
+add_executable(hsm-mldsa tests/mldsa.cpp)
+target_include_directories(hsm-mldsa PRIVATE include)
+target_link_libraries(hsm-mldsa PRIVATE hsm-simulator OpenSSL::Crypto)
+add_test(NAME mldsa COMMAND ${CMAKE_COMMAND}
+ -DTEST_PROGRAM=$<TARGET_FILE:hsm-mldsa> -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run.cmake)
 add_executable(hsm-loader tests/loader.cpp)
 target_include_directories(hsm-loader PRIVATE include)
 target_link_libraries(hsm-loader PRIVATE ${CMAKE_DL_LIBS})

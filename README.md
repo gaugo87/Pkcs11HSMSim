@@ -90,6 +90,60 @@ objets issus du même PKCS#12, ainsi que son .meta, sont supprimés ensemble.
 
 ## Tests effectués
 
+### Tester sur Windows avec votre OpenSSL 3.5+
+
+Prérequis : Visual Studio 2022 avec les outils C++ x64 et le SDK Windows,
+CMake 3.24+ et CTest dans le PATH, une installation OpenSSL x64 avec ses
+en-têtes, bibliothèques d'import et DLL correspondantes. Aucun build GitHub
+Actions n'est déclenché par ces scripts.
+
+Depuis la racine du dépôt dans PowerShell :
+
+```powershell
+git pull
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-windows.ps1 -OpenSslRoot "C:\OpenSSL-3.5"
+```
+
+Pour ne lancer que le test ML-DSA : ajouter `-MldsaOnly`. Le script compile
+tous les exécutables mais sélectionne uniquement ce test lors de l'exécution.
+Si votre arborescence OpenSSL est différente, utiliser `-OpenSslBin` pour
+le répertoire d'openssl.exe et des DLL, et `-OpenSslCryptoLibrary` pour le
+chemin complet de la bibliothèque d'import libcrypto.lib.
+
+Une configuration oqsprovider existante peut être sélectionnée explicitement :
+
+```powershell
+.\scripts\test-windows.ps1 -OpenSslRoot "C:\OpenSSL-3.5" -OpenSslConfig "C:\OpenSSL-3.5\ssl\openssl.cnf" -OpenSslModules "C:\OpenSSL-3.5\lib\ossl-modules" -MldsaOnly
+```
+
+ML-DSA est fourni nativement par OpenSSL 3.5 ; liboqs/oqsprovider n'est pas
+nécessaire pour ce test. Le script conserve la configuration OpenSSL héritée
+si aucune option ne la remplace. Une configuration ne chargeant que
+oqsprovider peut rendre indisponibles AES ou les encodeurs PKCS#12 : conserver
+également le provider default. Le journal indique les providers disponibles ;
+il ne prétend pas valider spécifiquement l'implémentation liboqs.
+
+Le nouveau test `mldsa` couvre ML-DSA-44/65/87 : génération, attributs,
+lecture PKCS#12 indépendante, signature/vérification dans les deux sens
+DLL/EVP, signature altérée, multipart, buffers NULL et trop petits,
+wrapping AES-256, rejet d'un blob altéré, suppression puis unwrapping,
+et signature après Finalize/Initialize avec recherche de nouveaux handles.
+Il compare aussi la clé rechargée avec la clé initiale.
+AES-KW sans padding exige un PKCS#8 aligné sur 8 octets ; sinon le test
+attend son rejet et effectue le parcours complet avec AES-KWP.
+Ce test ne couvre pas HashML-DSA, les contextes non vides ni SLH-DSA.
+
+CTest crée un token isolé pour chaque test. Les journaux sont dans
+`out/windows-tests/test-*.log` et `out/windows-tests/Testing/Temporary/LastTest.log`.
+Les tokens de test sont conservés sous `out/windows-tests/test-tokens` pour
+diagnostic. Ils contiennent les clés privées de test : partager le journal,
+pas le répertoire complet. Le script renvoie un code non nul en cas d'échec.
+Un succès doit afficher `ML-DSA-44 PASS`, `ML-DSA-65 PASS`, `ML-DSA-87 PASS`
+puis le succès CTest. Ces nouveaux tests restent à exécuter avec OpenSSL 3.5+
+et sous Windows ; leur ajout ne constitue pas une validation réussie.
+
+### Résultats précédents
+
 Linux, GCC 13, OpenSSL 3.0.13 :
 
 - 385 vérifications de chargement dynamique et d'interfaces ;
