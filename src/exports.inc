@@ -82,7 +82,7 @@ CK_EXPORT CK_RV CK_CALL C_GetAttributeValue(CK_SESSION_HANDLE hSession, CK_OBJEC
  return boundary(true,[&]()->CK_RV{return GetAttributeValue(hSession,hObject,pTemplate,ulCount);});
 }
 CK_EXPORT CK_RV CK_CALL C_SetAttributeValue(CK_SESSION_HANDLE hSession, CK_OBJECT_HANDLE hObject, CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount) {
- return boundary(true,[&]()->CK_RV{return CKR_FUNCTION_NOT_SUPPORTED;});
+ return boundary(true,[&]()->CK_RV{return SetAttributeValue(hSession,hObject,pTemplate,ulCount);});
 }
 CK_EXPORT CK_RV CK_CALL C_FindObjectsInit(CK_SESSION_HANDLE hSession, CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount) {
  return boundary(true,[&]()->CK_RV{return FindInit(hSession,pTemplate,ulCount);});

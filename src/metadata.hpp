@@ -5,9 +5,15 @@
 #include <string>
 #include <stdexcept>
 #include <cstdint>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace metadata {
-struct Attributes { std::string label, id; };
+struct Attributes { std::string label, id; std::map<std::uint32_t,bool> policy; };
 using Records=std::map<std::uint32_t,Attributes>;
 inline std::filesystem::path path(const std::filesystem::path& key){
  auto result=key;result+=".meta";return result;
@@ -33,27 +39,37 @@ inline Records read(const std::filesystem::path& key){
  if(!std::filesystem::exists(file))return {};
  if(std::filesystem::file_size(file)>1024*1024)throw std::runtime_error("Metadata too large");
  std::ifstream in(file,std::ios::binary);
- if(number(in)!=0x48534D31)throw std::runtime_error("Unknown metadata format");
+ auto version=number(in);
+ if(version!=0x48534D31&&version!=0x48534D32)throw std::runtime_error("Unknown metadata format");
  auto count=number(in);if(count>4)throw std::runtime_error("Too many metadata records");
  Records records;
  for(std::uint32_t i=0;i<count;i++){
   auto cls=number(in);if(cls<1||cls>4)throw std::runtime_error("Invalid metadata class");
   Attributes a;a.label=bytes(in);a.id=bytes(in);
+  if(version==0x48534D32){auto n=number(in);if(n>32)throw std::runtime_error("Too many policy attributes");
+   for(std::uint32_t j=0;j<n;++j){auto type=number(in),value=number(in);
+    if(value>1||!a.policy.emplace(type,value!=0).second)throw std::runtime_error("Invalid policy metadata");}}
   if(!records.emplace(cls,std::move(a)).second)throw std::runtime_error("Duplicate metadata class");
  }
  if(in.peek()!=std::char_traits<char>::eof())throw std::runtime_error("Trailing metadata bytes");
  return records;
 }
-// Create-only publication. The simulator currently supports one process per token.
-inline void create(const std::filesystem::path& key,const Records& records){
+// Create-only publication, or atomic replacement for attribute updates.
+// The simulator currently supports one process per token.
+inline void create(const std::filesystem::path& key,const Records& records,bool replace=false){
  auto file=path(key);auto temp=file;temp+=".tmp";
- if(std::filesystem::exists(file)||std::filesystem::exists(temp))throw std::runtime_error("Metadata already exists");
+ if((!replace&&std::filesystem::exists(file))||std::filesystem::exists(temp))throw std::runtime_error("Metadata already exists");
  try{
   std::ofstream out(temp,std::ios::binary|std::ios::trunc);
-  number(out,0x48534D31);number(out,static_cast<std::uint32_t>(records.size()));
-  for(const auto& [cls,a]:records){number(out,cls);bytes(out,a.label);bytes(out,a.id);}
+  number(out,0x48534D32);number(out,static_cast<std::uint32_t>(records.size()));
+  for(const auto& [cls,a]:records){number(out,cls);bytes(out,a.label);bytes(out,a.id);
+   number(out,static_cast<std::uint32_t>(a.policy.size()));for(auto [type,value]:a.policy){number(out,type);number(out,value?1:0);}}
   out.close();if(!out)throw std::runtime_error("Metadata write failed");
+#ifdef _WIN32
+  if(!MoveFileExW(temp.c_str(),file.c_str(),replace?MOVEFILE_REPLACE_EXISTING:0))throw std::runtime_error("Metadata rename failed");
+#else
   std::filesystem::rename(temp,file);
+#endif
  }catch(...){std::error_code ec;std::filesystem::remove(temp,ec);throw;}
 }
 }

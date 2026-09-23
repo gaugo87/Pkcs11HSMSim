@@ -1,5 +1,15 @@
 # Unreleased
 
+- Politiques SIGN/VERIFY/WRAP/UNWRAP/DERIVE/EXTRACTABLE/SENSITIVE appliquées,
+  attributs MODIFIABLE/DESTROYABLE et SetAttributeValue implémentés.
+- Métadonnées HSM2 par objet, lecture HSM1 rétrocompatible, remplacement
+  atomique et absence de modification partielle sur échec de SetAttributeValue.
+- Objets de session pour génération et unwrapping, contrôle RW sur objets token.
+- 152 vérifications de politique passent sous Linux/OpenSSL 3.0.13,
+  ainsi que les tests existants. Les defaults historiques sont conservés.
+- PRIVATE/ENCRYPT/DECRYPT sont stockés ; leurs opérations/contrôles avancés
+  et les attributs de traçabilité restent hors périmètre de cette évolution.
+
 - C_DeriveKey : CKM_AES_ECB_ENCRYPT_DATA vers AES-128/192/256, annoncé
   avec CKF_DERIVE ; attribut CKA_DERIVE lisible.
 - Clés dérivées de session par défaut, ou persistées avec CKA_TOKEN=TRUE.

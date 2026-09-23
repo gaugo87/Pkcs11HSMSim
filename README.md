@@ -112,11 +112,11 @@ l'application doit préparer les blocs de contexte effectivement utilisés.
 Une clé dérivée est un objet de session par défaut (`CKA_TOKEN=FALSE`),
 visible aux autres sessions du même processus, détruit à la fermeture de la
 session créatrice. `CKA_TOKEN=TRUE` la persiste dans `symmetric/` avec ses
-métadonnées et exige une session RW. Le support des objets de session ajouté
-ici concerne uniquement la dérivation.
+métadonnées et exige une session RW. `CKA_TOKEN=FALSE` est également pris
+en charge pour la génération et l'unwrapping.
 
-`CKA_DERIVE` est désormais lisible pour les clés AES. Comme convenu, les
-politiques DERIVE/WRAP/UNWRAP ne limitent pas les opérations du simulateur.
+`CKA_DERIVE` est lisible et contrôlé sur la clé maître. `CKA_WRAP` et
+`CKA_UNWRAP` sont contrôlés sur la clé dérivée utilisée pour ces opérations.
 `CKM_EXTRACT_KEY_FROM_KEY`, les autres dérivations et la sortie générique
 `CKK_GENERIC_SECRET` ne sont pas implémentés.
 
@@ -140,10 +140,69 @@ Les mécanismes avec hachage intégré acceptent Update/Final ; le buffering
 multipart est limité à 64 Mio. Les paramètres de signature hors RSA-PSS sont
 encore rejetés, ainsi que les variantes Hash-PQC.
 
-Les attributs de politique sont lisibles mais ne restreignent pas l'usage des
-clés. La recherche compare les mêmes valeurs que GetAttributeValue.
+Les attributs de politique sont maintenant enregistrés et appliqués (voir
+ci-dessous). La recherche compare les mêmes valeurs que GetAttributeValue.
 La suppression conserve pour l'instant une sémantique par fichier : tous les
 objets issus du même PKCS#12, ainsi que son .meta, sont supprimés ensemble.
+
+## Attributs et politiques
+
+Les templates de génération, dérivation et unwrapping enregistrent les
+attributs fournis. `C_GetAttributeValue` les restitue ; `C_SetAttributeValue`
+permet de modifier les usages, `CKA_LABEL`, `CKA_ID` et les politiques ci-dessous.
+
+| Attribut | Contrôle |
+|---|---|
+| CKA_SIGN / CKA_VERIFY | Signature / vérification, y compris multipart |
+| CKA_WRAP / CKA_UNWRAP | Usage de la clé de wrapping / unwrapping |
+| CKA_DERIVE | Usage de la clé maître pour dériver |
+| CKA_EXTRACTABLE | Une clé non extractible ne peut pas être wrappée |
+| CKA_SENSITIVE | Lecture de CKA_VALUE d'une clé AES interdite si sensible |
+| CKA_TOKEN | Persistance ou durée de vie de session |
+| CKA_MODIFIABLE | Autorisation de C_SetAttributeValue |
+| CKA_DESTROYABLE | Autorisation de C_DestroyObject |
+
+La lecture de `CKA_VALUE` AES est également interdite si `CKA_EXTRACTABLE=FALSE`.
+Une clé sensible reste wrappable si elle est extractible. Les opérations
+interdites renvoient `CKR_KEY_FUNCTION_NOT_PERMITTED`, le wrapping d'une clé
+non extractible `CKR_KEY_UNEXTRACTABLE`, et la lecture interdite
+`CKR_ATTRIBUTE_SENSITIVE` avec `CK_UNAVAILABLE_INFORMATION`.
+
+`CKA_SENSITIVE` peut passer de FALSE à TRUE, jamais l'inverse ;
+`CKA_EXTRACTABLE` peut passer de TRUE à FALSE, jamais l'inverse.
+`CKA_TOKEN`, la classe, le type, la longueur et les paramètres de clé ne sont
+pas modifiables par SetAttributeValue. Un template mal formé ou une tentative
+de modification interdite est rejeté sans application partielle.
+La modification ou suppression d'un objet token exige une session RW.
+
+Compatibilité des valeurs par défaut : les templates incomplets et les anciens
+fichiers conservent les valeurs historiques (SIGN pour les clés privées,
+VERIFY pour les publiques, WRAP/UNWRAP/DERIVE pour AES ; EXTRACTABLE=TRUE,
+SENSITIVE=FALSE, MODIFIABLE=TRUE, DESTROYABLE=TRUE).
+Les autres usages sont FALSE. Génération/unwrapping restent persistants par
+défaut ; la dérivation reste temporaire. Fournir les valeurs explicitement
+pour reproduire précisément la politique de votre HSM.
+
+Les métadonnées HSM2 conservent labels, IDs et politiques par classe d'objet.
+Les fichiers HSM1 restent lisibles et passent en HSM2 à la première modification.
+SetAttributeValue remplace atomiquement le fichier de métadonnées ; un échec
+conserve l'ancien état en mémoire et ne supprime pas le fichier de clé.
+Le renommage du label ne renomme pas le fichier de clé.
+
+Limites : ce n'est pas l'ensemble des attributs PKCS#11. `CKA_ENCRYPT`,
+`CKA_DECRYPT` et `CKA_PRIVATE` sont mémorisés, mais Encrypt/Decrypt restent
+non implémentés et PRIVATE n'ajoute pas de contrôle d'accès au login simplifié.
+Les attributs historiques LOCAL/ALWAYS_SENSITIVE/NEVER_EXTRACTABLE et les
+templates de politique imbriqués ne sont pas exposés.
+Les deux membres d'une paire générée doivent avoir la même valeur TOKEN ;
+les paires mixtes sont rejetées. La suppression des objets token reste par
+fichier et refuse de supprimer un membre si son frère est non destructible.
+Ces contrôles ne protègent pas les fichiers sur disque.
+
+Validation : 152 vérifications de politique, 62 de dérivation, 464 de
+régression/persistance et le smoke test passent sous Linux/OpenSSL 3.0.13.
+Le test `policy` est intégré à CTest et au script Windows ; Windows/OpenSSL
+3.5 reste à valider.
 
 ## Tests effectués
 
@@ -223,7 +282,7 @@ compilation Windows.
 
 - PQC : contextes, hedge/déterminisme, variantes avec hachage et tests de tous
   les parameter sets avec OpenSSL 3.5.
-- Objets de session, login partagé entre sessions, attributs de certificats,
+- Login partagé entre sessions, contrôle d'accès PRIVATE, attributs de certificats,
   suppression individuelle des objets.
 - Validation exhaustive des arguments/états et diagnostic des imports invalides.
 - Écritures transactionnelles et accès interprocessus.

@@ -30,6 +30,11 @@ else()
 endif()
 
 enable_testing()
+add_executable(hsm-policy tests/policy.cpp)
+target_include_directories(hsm-policy PRIVATE include)
+target_link_libraries(hsm-policy PRIVATE hsm-simulator)
+add_test(NAME policy COMMAND ${CMAKE_COMMAND}
+ -DTEST_PROGRAM=$<TARGET_FILE:hsm-policy> -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run.cmake)
 add_executable(hsm-derive tests/derive.cpp)
 target_include_directories(hsm-derive PRIVATE include)
 target_link_libraries(hsm-derive PRIVATE hsm-simulator)
