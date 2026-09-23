@@ -70,6 +70,63 @@ une gestion d'erreur plus stricte.
 
 ## Cryptographie implémentée
 
+### Dériver une clé AES de wrapping
+
+`C_DeriveKey` prend en charge `CKM_AES_ECB_ENCRYPT_DATA`, avec une clé
+maître AES de 16, 24 ou 32 octets. Les données utilisent
+`CK_KEY_DERIVATION_STRING_DATA` et leur longueur doit être un multiple de
+16 octets. Le mécanisme chiffre sans padding et conserve les premiers
+octets du résultat. Référence : [OASIS, section 2.15](https://docs.oasis-open.org/pkcs11/pkcs11-curr/v2.40/os/pkcs11-curr-v2.40-os.html).
+
+Exemple pour obtenir directement une clé AES-128 (16 **octets**, 128 bits) :
+
+```cpp
+// contextBlock : 16 octets préparés par l'application.
+CK_KEY_DERIVATION_STRING_DATA data{contextBlock, 16};
+CK_MECHANISM mechanism{CKM_AES_ECB_ENCRYPT_DATA, &data, sizeof(data)};
+CK_OBJECT_CLASS cls = CKO_SECRET_KEY;
+CK_KEY_TYPE type = CKK_AES;
+CK_ULONG size = 16;
+CK_BBOOL yes = CK_TRUE, no = CK_FALSE;
+CK_ATTRIBUTE attributes[] = {
+    {CKA_CLASS, &cls, sizeof(cls)},
+    {CKA_KEY_TYPE, &type, sizeof(type)},
+    {CKA_VALUE_LEN, &size, sizeof(size)},
+    {CKA_TOKEN, &no, sizeof(no)},
+    {CKA_WRAP, &yes, sizeof(yes)},
+    {CKA_UNWRAP, &yes, sizeof(yes)}
+};
+CK_OBJECT_HANDLE derived;
+CK_RV rv = functions->C_DeriveKey(session, &mechanism, masterWrappingKey,
+                                 attributes, 6, &derived);
+// Si rv == CKR_OK : utiliser derived dans C_WrapKey/C_UnwrapKey.
+```
+
+`CKA_KEY_TYPE=CKK_AES` et `CKA_VALUE_LEN` sont requis dans cette
+implémentation ; tailles de sortie : 16, 24 ou 32 octets. Les données doivent
+être assez longues (32 octets minimum pour une sortie de 24 ou 32 octets).
+Le simulateur ne hache pas et ne complète pas automatiquement le contexte.
+En ECB, modifier un bloc écarté par la troncature ne change pas la clé :
+l'application doit préparer les blocs de contexte effectivement utilisés.
+
+Une clé dérivée est un objet de session par défaut (`CKA_TOKEN=FALSE`),
+visible aux autres sessions du même processus, détruit à la fermeture de la
+session créatrice. `CKA_TOKEN=TRUE` la persiste dans `symmetric/` avec ses
+métadonnées et exige une session RW. Le support des objets de session ajouté
+ici concerne uniquement la dérivation.
+
+`CKA_DERIVE` est désormais lisible pour les clés AES. Comme convenu, les
+politiques DERIVE/WRAP/UNWRAP ne limitent pas les opérations du simulateur.
+`CKM_EXTRACT_KEY_FROM_KEY`, les autres dérivations et la sortie générique
+`CKK_GENERIC_SECRET` ne sont pas implémentés.
+
+Test : `ctest --test-dir out/build -R '^derive$' --output-on-failure`
+(ajouter `-C Release` sous Visual Studio). Le script Windows lance aussi ce
+test sauf avec `-MldsaOnly`. Les tests vérifient un vecteur AES-ECB connu,
+la troncature, le wrapping/unwrapping, les erreurs et la durée de vie des clés.
+
+### Autres mécanismes
+
 - RSA PKCS#1 v1.5 brut et SHA-256/384/512 avec hachage intégré.
 - RSA-PSS brut et SHA-256/384/512, paramètres copiés à Init, MGF1 et sel explicites.
 - ECDSA brut et SHA-256/384/512 ; conversion DER OpenSSL vers r || s.

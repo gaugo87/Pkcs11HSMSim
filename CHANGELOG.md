@@ -1,5 +1,11 @@
 # Unreleased
 
+- C_DeriveKey : CKM_AES_ECB_ENCRYPT_DATA vers AES-128/192/256, annoncé
+  avec CKF_DERIVE ; attribut CKA_DERIVE lisible.
+- Clés dérivées de session par défaut, ou persistées avec CKA_TOKEN=TRUE.
+- 62 vérifications de dérivation réussies sous Linux/OpenSSL 3.0.13 ;
+  compilation Windows encore à valider.
+
 - Ajout d'un test ML-DSA-44/65/87 : interopérabilité EVP, multipart,
   wrapping/unwrapping AES, PKCS#12 et rechargement du token.
 - Script PowerShell VS2022/OpenSSL 3.5+ avec sélection de l'installation,

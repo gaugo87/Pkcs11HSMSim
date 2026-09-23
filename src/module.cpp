@@ -26,7 +26,7 @@ namespace fs=std::filesystem;
 template<class T, void(*F)(T*)> using ossl_ptr=std::unique_ptr<T,decltype(F)>;
 
 namespace {
-struct Object { CK_OBJECT_HANDLE h{}; CK_OBJECT_CLASS cls{}; CK_KEY_TYPE type{}; std::string label,id,path,param; std::vector<unsigned char> secret,cert; std::shared_ptr<EVP_PKEY> key; };
+struct Object { CK_OBJECT_HANDLE h{}; CK_OBJECT_CLASS cls{}; CK_KEY_TYPE type{}; std::string label,id,path,param; std::vector<unsigned char> secret,cert; std::shared_ptr<EVP_PKEY> key; CK_SESSION_HANDLE owner{}; };
 struct Operation { bool active=false, verify=false; CK_MECHANISM_TYPE mech{}; CK_OBJECT_HANDLE key{}; std::vector<unsigned char> data; CK_RSA_PKCS_PSS_PARAMS pss{}; };
 struct Session { CK_SESSION_HANDLE h{}; CK_FLAGS flags{}; bool logged=false, finding=false; std::vector<CK_OBJECT_HANDLE> matches; size_t cursor=0; Operation op; };
 struct State { bool initialized=false; fs::path root; CK_OBJECT_HANDLE nextObj=1; CK_SESSION_HANDLE nextSession=1; std::unordered_map<CK_OBJECT_HANDLE,Object> objects; std::unordered_map<CK_SESSION_HANDLE,Session> sessions; std::recursive_mutex mutex; } g;
@@ -171,18 +171,19 @@ static CK_RV CK_CALL GetInfo(CK_INFO_PTR p){if(!p)return CKR_ARGUMENTS_BAD;std::
 static CK_RV CK_CALL GetSlotList(CK_BBOOL,CK_SLOT_ID_PTR p,CK_ULONG_PTR n){if(!n)return CKR_ARGUMENTS_BAD;if(!p){*n=1;return CKR_OK;}if(*n<1){*n=1;return CKR_BUFFER_TOO_SMALL;}p[0]=1;*n=1;return ready();}
 static CK_RV CK_CALL GetSlotInfo(CK_SLOT_ID s,CK_SLOT_INFO_PTR p){if(s!=1)return CKR_SLOT_ID_INVALID;if(!p)return CKR_ARGUMENTS_BAD;std::memset(p,0,sizeof(*p));blank(p->slotDescription,64,"File-backed virtual HSM slot");blank(p->manufacturerID,32,"OpenAI");p->flags=CKF_TOKEN_PRESENT;p->hardwareVersion={1,0};p->firmwareVersion={0,1};return ready();}
 static CK_RV CK_CALL GetTokenInfo(CK_SLOT_ID s,CK_TOKEN_INFO_PTR p){if(s!=1)return CKR_SLOT_ID_INVALID;if(!p)return CKR_ARGUMENTS_BAD;std::memset(p,0,sizeof(*p));blank(p->label,32,"HSM Simulator");blank(p->manufacturerID,32,"OpenAI");blank(p->model,16,"FILE-HSM");blank(p->serialNumber,16,"0000000000000001");p->flags=CKF_RNG|CKF_LOGIN_REQUIRED|CKF_USER_PIN_INITIALIZED;p->ulMaxSessionCount=p->ulMaxRwSessionCount=CK_UNAVAILABLE_INFORMATION;p->ulSessionCount=p->ulRwSessionCount=(CK_ULONG)g.sessions.size();p->ulMinPinLen=0;p->ulMaxPinLen=256;p->hardwareVersion={1,0};p->firmwareVersion={0,1};return ready();}
-static const std::array<CK_MECHANISM_TYPE,21> mechs={CKM_RSA_PKCS_KEY_PAIR_GEN,CKM_RSA_PKCS,CKM_SHA256_RSA_PKCS,CKM_SHA384_RSA_PKCS,CKM_SHA512_RSA_PKCS,CKM_EC_KEY_PAIR_GEN,CKM_ECDSA,CKM_ECDSA_SHA256,CKM_ECDSA_SHA384,CKM_ECDSA_SHA512,CKM_AES_KEY_GEN,CKM_AES_KEY_WRAP,CKM_AES_KEY_WRAP_PAD,CKM_ML_DSA_KEY_PAIR_GEN,CKM_ML_DSA,CKM_SLH_DSA_KEY_PAIR_GEN,CKM_SLH_DSA,CKM_RSA_PKCS_PSS,CKM_SHA256_RSA_PKCS_PSS,CKM_SHA384_RSA_PKCS_PSS,CKM_SHA512_RSA_PKCS_PSS};
+static const std::array<CK_MECHANISM_TYPE,22> mechs={CKM_AES_ECB_ENCRYPT_DATA,CKM_RSA_PKCS_KEY_PAIR_GEN,CKM_RSA_PKCS,CKM_SHA256_RSA_PKCS,CKM_SHA384_RSA_PKCS,CKM_SHA512_RSA_PKCS,CKM_EC_KEY_PAIR_GEN,CKM_ECDSA,CKM_ECDSA_SHA256,CKM_ECDSA_SHA384,CKM_ECDSA_SHA512,CKM_AES_KEY_GEN,CKM_AES_KEY_WRAP,CKM_AES_KEY_WRAP_PAD,CKM_ML_DSA_KEY_PAIR_GEN,CKM_ML_DSA,CKM_SLH_DSA_KEY_PAIR_GEN,CKM_SLH_DSA,CKM_RSA_PKCS_PSS,CKM_SHA256_RSA_PKCS_PSS,CKM_SHA384_RSA_PKCS_PSS,CKM_SHA512_RSA_PKCS_PSS};
 static CK_RV CK_CALL GetMechanismList(CK_SLOT_ID s,CK_MECHANISM_TYPE_PTR p,CK_ULONG_PTR n){if(s!=1)return CKR_SLOT_ID_INVALID;if(!n)return CKR_ARGUMENTS_BAD;if(!p){*n=mechs.size();return CKR_OK;}if(*n<mechs.size()){*n=mechs.size();return CKR_BUFFER_TOO_SMALL;}std::copy(mechs.begin(),mechs.end(),p);*n=mechs.size();return CKR_OK;}
-static CK_RV CK_CALL GetMechanismInfo(CK_SLOT_ID s,CK_MECHANISM_TYPE m,CK_MECHANISM_INFO_PTR p){if(s!=1)return CKR_SLOT_ID_INVALID;if(!p)return CKR_ARGUMENTS_BAD;if(std::find(mechs.begin(),mechs.end(),m)==mechs.end())return CKR_MECHANISM_INVALID;p->ulMinKeySize=0;p->ulMaxKeySize=0;p->flags=0;if(m==CKM_AES_KEY_GEN)p->flags=CKF_GENERATE;else if(m==CKM_RSA_PKCS_KEY_PAIR_GEN||m==CKM_EC_KEY_PAIR_GEN||m==CKM_ML_DSA_KEY_PAIR_GEN||m==CKM_SLH_DSA_KEY_PAIR_GEN)p->flags=CKF_GENERATE_KEY_PAIR;else if(m==CKM_AES_KEY_WRAP||m==CKM_AES_KEY_WRAP_PAD)p->flags=CKF_WRAP|CKF_UNWRAP;else p->flags=CKF_SIGN|CKF_VERIFY;return CKR_OK;}
+static CK_RV CK_CALL GetMechanismInfo(CK_SLOT_ID s,CK_MECHANISM_TYPE m,CK_MECHANISM_INFO_PTR p){if(s!=1)return CKR_SLOT_ID_INVALID;if(!p)return CKR_ARGUMENTS_BAD;if(std::find(mechs.begin(),mechs.end(),m)==mechs.end())return CKR_MECHANISM_INVALID;p->ulMinKeySize=0;p->ulMaxKeySize=0;p->flags=0;if(m==CKM_AES_ECB_ENCRYPT_DATA){p->ulMinKeySize=16;p->ulMaxKeySize=32;p->flags=CKF_DERIVE;}else if(m==CKM_AES_KEY_GEN)p->flags=CKF_GENERATE;else if(m==CKM_RSA_PKCS_KEY_PAIR_GEN||m==CKM_EC_KEY_PAIR_GEN||m==CKM_ML_DSA_KEY_PAIR_GEN||m==CKM_SLH_DSA_KEY_PAIR_GEN)p->flags=CKF_GENERATE_KEY_PAIR;else if(m==CKM_AES_KEY_WRAP||m==CKM_AES_KEY_WRAP_PAD)p->flags=CKF_WRAP|CKF_UNWRAP;else p->flags=CKF_SIGN|CKF_VERIFY;return CKR_OK;}
 static CK_RV CK_CALL OpenSession(CK_SLOT_ID s,CK_FLAGS f,CK_VOID_PTR,CK_NOTIFY,CK_SESSION_HANDLE_PTR h){std::scoped_lock l(g.mutex);if(ready())return ready();if(s!=1)return CKR_SLOT_ID_INVALID;if(!h||!(f&CKF_SERIAL_SESSION))return CKR_ARGUMENTS_BAD;Session x{g.nextSession++,f};*h=x.h;g.sessions.emplace(x.h,std::move(x));return CKR_OK;}
-static CK_RV CK_CALL CloseSession(CK_SESSION_HANDLE h){std::scoped_lock l(g.mutex);return g.sessions.erase(h)?CKR_OK:CKR_SESSION_HANDLE_INVALID;}
-static CK_RV CK_CALL CloseAllSessions(CK_SLOT_ID s){if(s!=1)return CKR_SLOT_ID_INVALID;std::scoped_lock l(g.mutex);g.sessions.clear();return CKR_OK;}
+static CK_RV CK_CALL CloseSession(CK_SESSION_HANDLE h){std::scoped_lock l(g.mutex);if(!g.sessions.erase(h))return CKR_SESSION_HANDLE_INVALID;for(auto it=g.objects.begin();it!=g.objects.end();)if(it->second.owner==h)it=g.objects.erase(it);else ++it;return CKR_OK;}
+static CK_RV CK_CALL CloseAllSessions(CK_SLOT_ID s){if(s!=1)return CKR_SLOT_ID_INVALID;std::scoped_lock l(g.mutex);g.sessions.clear();for(auto it=g.objects.begin();it!=g.objects.end();)if(it->second.owner)it=g.objects.erase(it);else ++it;return CKR_OK;}
 static CK_RV CK_CALL GetSessionInfo(CK_SESSION_HANDLE h,CK_SESSION_INFO_PTR p){std::scoped_lock l(g.mutex);auto* s=session(h);if(!s)return CKR_SESSION_HANDLE_INVALID;if(!p)return CKR_ARGUMENTS_BAD;p->slotID=1;p->flags=s->flags;p->state=s->logged?((s->flags&CKF_RW_SESSION)?CKS_RW_USER_FUNCTIONS:CKS_RO_USER_FUNCTIONS):((s->flags&CKF_RW_SESSION)?CKS_RW_PUBLIC_SESSION:CKS_RO_PUBLIC_SESSION);p->ulDeviceError=0;return CKR_OK;}
 static CK_RV CK_CALL Login(CK_SESSION_HANDLE h,CK_USER_TYPE u,CK_CHAR_PTR pin,CK_ULONG n){std::scoped_lock l(g.mutex);auto*s=session(h);if(!s)return CKR_SESSION_HANDLE_INVALID;if(u!=CKU_USER&&u!=CKU_SO)return CKR_USER_TYPE_INVALID;if(s->logged)return CKR_USER_ALREADY_LOGGED_IN;std::string expected=env("HSM_SIM_PIN","");if(!expected.empty()&&(!pin||std::string(pin,pin+n)!=expected))return CKR_PIN_INCORRECT;s->logged=true;return CKR_OK;}
 static CK_RV CK_CALL Logout(CK_SESSION_HANDLE h){std::scoped_lock l(g.mutex);auto*s=session(h);if(!s)return CKR_SESSION_HANDLE_INVALID;if(!s->logged)return CKR_USER_NOT_LOGGED_IN;s->logged=false;return CKR_OK;}
 static CK_RV CK_CALL DestroyObject(CK_SESSION_HANDLE h,CK_OBJECT_HANDLE oh){
  std::scoped_lock l(g.mutex);if(!session(h))return CKR_SESSION_HANDLE_INVALID;
  auto*o=object(oh);if(!o)return CKR_OBJECT_HANDLE_INVALID;
+ if(o->owner){g.objects.erase(oh);return CKR_OK;}
  auto path=o->path;std::error_code ec;fs::remove(path,ec);if(ec)return CKR_DEVICE_ERROR;
  fs::remove(metadata::path(path),ec);
  for(auto i=g.objects.begin();i!=g.objects.end();)if(i->second.path==path)i=g.objects.erase(i);else++i;
@@ -190,8 +191,10 @@ static CK_RV CK_CALL DestroyObject(CK_SESSION_HANDLE h,CK_OBJECT_HANDLE oh){
 }
 static CK_RV put(CK_ATTRIBUTE& a,const void* p,size_t n){if(!a.pValue){a.ulValueLen=n;return CKR_OK;}if(a.ulValueLen<n){a.ulValueLen=n;return CKR_BUFFER_TOO_SMALL;}std::memcpy(a.pValue,p,n);a.ulValueLen=n;return CKR_OK;}
 static CK_ULONG parameterSet(const Object& o){if(o.type==CKK_ML_DSA){if(o.param.find("44")!=std::string::npos)return CKP_ML_DSA_44;if(o.param.find("87")!=std::string::npos)return CKP_ML_DSA_87;return CKP_ML_DSA_65;}if(o.type==CKK_SLH_DSA){static const char* names[]={"SHA2-128s","SHAKE-128s","SHA2-128f","SHAKE-128f","SHA2-192s","SHAKE-192s","SHA2-192f","SHAKE-192f","SHA2-256s","SHAKE-256s","SHA2-256f","SHAKE-256f"};for(CK_ULONG i=0;i<12;i++)if(o.param.find(names[i])!=std::string::npos)return i+1;}return 0;}
-static CK_RV readAttributes(Object* o,CK_ATTRIBUTE_PTR a,CK_ULONG n){if(!a&&n)return CKR_ARGUMENTS_BAD;CK_RV rv=CKR_OK;for(CK_ULONG i=0;i<n;i++){CK_RV x=CKR_OK;switch(a[i].type){case CKA_TOKEN:case CKA_PRIVATE:case CKA_SIGN:case CKA_VERIFY:case CKA_WRAP:case CKA_UNWRAP:case CKA_EXTRACTABLE:case CKA_SENSITIVE:{
+static CK_RV readAttributes(Object* o,CK_ATTRIBUTE_PTR a,CK_ULONG n){if(!a&&n)return CKR_ARGUMENTS_BAD;CK_RV rv=CKR_OK;for(CK_ULONG i=0;i<n;i++){CK_RV x=CKR_OK;switch(a[i].type){case CKA_DERIVE:case CKA_TOKEN:case CKA_PRIVATE:case CKA_SIGN:case CKA_VERIFY:case CKA_WRAP:case CKA_UNWRAP:case CKA_EXTRACTABLE:case CKA_SENSITIVE:{
  CK_BBOOL value=CK_TRUE;
+ if(a[i].type==CKA_TOKEN)value=o->owner?CK_FALSE:CK_TRUE;
+ if(a[i].type==CKA_DERIVE)value=o->type==CKK_AES&&o->cls==CKO_SECRET_KEY;
  if(a[i].type==CKA_SENSITIVE)value=CK_FALSE;
  if(a[i].type==CKA_PRIVATE||a[i].type==CKA_SIGN)value=o->cls==CKO_PRIVATE_KEY;
  if(a[i].type==CKA_VERIFY)value=o->cls==CKO_PUBLIC_KEY;
@@ -322,5 +325,66 @@ static CK_RV CK_CALL UnwrapKey(CK_SESSION_HANDLE h,CK_MECHANISM_PTR m,CK_OBJECT_
  g.objects.at(before).id=id;g.objects.at(before+1).id=id;
  rv=persistMetadata(path.string());if(rv)return rv;*out=before;return CKR_OK;}
 static CK_RV CK_CALL GenerateRandom(CK_SESSION_HANDLE h,CK_BYTE_PTR p,CK_ULONG n){std::scoped_lock l(g.mutex);if(!session(h))return CKR_SESSION_HANDLE_INVALID;if(!p&&n)return CKR_ARGUMENTS_BAD;return RAND_bytes(p,(int)n)==1?CKR_OK:CKR_DEVICE_ERROR;}
+
+// AES-only encryption-based derivation. Policies are intentionally not enforced.
+static CK_RV CK_CALL DeriveKey(CK_SESSION_HANDLE h,CK_MECHANISM_PTR m,CK_OBJECT_HANDLE base,
+ CK_ATTRIBUTE_PTR attrs,CK_ULONG count,CK_OBJECT_HANDLE_PTR out){
+ auto* s=session(h);if(!s)return CKR_SESSION_HANDLE_INVALID;
+ if(!m||!out||(!attrs&&count))return CKR_ARGUMENTS_BAD;
+ if(m->mechanism!=CKM_AES_ECB_ENCRYPT_DATA)return CKR_MECHANISM_INVALID;
+ if(!m->pParameter||m->ulParameterLen!=sizeof(CK_KEY_DERIVATION_STRING_DATA))return CKR_MECHANISM_PARAM_INVALID;
+ CK_KEY_DERIVATION_STRING_DATA data;std::memcpy(&data,m->pParameter,sizeof data);
+ if(!data.pData)return CKR_MECHANISM_PARAM_INVALID;
+ if(!data.ulLen||data.ulLen%16||data.ulLen>static_cast<CK_ULONG>(std::numeric_limits<int>::max()-16))return CKR_DATA_LEN_RANGE;
+ auto* master=object(base);if(!master)return CKR_KEY_HANDLE_INVALID;
+ if(master->cls!=CKO_SECRET_KEY||master->type!=CKK_AES)return CKR_KEY_TYPE_INCONSISTENT;
+ if(master->secret.size()!=16&&master->secret.size()!=24&&master->secret.size()!=32)return CKR_KEY_SIZE_RANGE;
+ CK_BBOOL token=CK_FALSE;
+ for(CK_ULONG i=0;i<count;++i){
+  auto& a=attrs[i];
+  for(CK_ULONG j=0;j<i;++j)if(attrs[j].type==a.type)return CKR_TEMPLATE_INCONSISTENT;
+  if(!a.pValue&&a.ulValueLen)return CKR_ATTRIBUTE_VALUE_INVALID;
+  switch(a.type){
+   case CKA_CLASS:case CKA_KEY_TYPE:case CKA_VALUE_LEN:
+    if(!a.pValue||a.ulValueLen!=sizeof(CK_ULONG))return CKR_ATTRIBUTE_VALUE_INVALID;break;
+   case CKA_TOKEN:case CKA_PRIVATE:case CKA_DERIVE:case CKA_WRAP:case CKA_UNWRAP:
+   case CKA_ENCRYPT:case CKA_DECRYPT:case CKA_SIGN:case CKA_VERIFY:case CKA_SENSITIVE:case CKA_EXTRACTABLE:{
+    if(!a.pValue||a.ulValueLen!=sizeof(CK_BBOOL))return CKR_ATTRIBUTE_VALUE_INVALID;
+    auto value=*static_cast<CK_BBOOL*>(a.pValue);if(value!=CK_TRUE&&value!=CK_FALSE)return CKR_ATTRIBUTE_VALUE_INVALID;
+    if(a.type==CKA_TOKEN)token=value;break;
+   }
+   case CKA_LABEL:case CKA_ID:break;
+   case CKA_VALUE:return CKR_TEMPLATE_INCONSISTENT;
+   default:return CKR_ATTRIBUTE_TYPE_INVALID;
+  }
+ }
+ if(attrulong(attrs,count,CKA_CLASS).value_or(CKO_SECRET_KEY)!=CKO_SECRET_KEY)return CKR_TEMPLATE_INCONSISTENT;
+ auto type=attrulong(attrs,count,CKA_KEY_TYPE),length=attrulong(attrs,count,CKA_VALUE_LEN);
+ // Generic-secret derivation is outside this simulator's AES storage model.
+ if(!type||!length)return CKR_TEMPLATE_INCOMPLETE;
+ if(*type!=CKK_AES)return CKR_TEMPLATE_INCONSISTENT;
+ if(*length!=16&&*length!=24&&*length!=32)return CKR_KEY_SIZE_RANGE;
+ if(*length>data.ulLen)return CKR_DATA_LEN_RANGE;
+ if(token&&!(s->flags&CKF_RW_SESSION))return CKR_SESSION_READ_ONLY;
+ std::string cipher="AES-"+std::to_string(master->secret.size()*8)+"-ECB";
+ ossl_ptr<EVP_CIPHER,EVP_CIPHER_free> ci(EVP_CIPHER_fetch(nullptr,cipher.c_str(),nullptr),EVP_CIPHER_free);
+ ossl_ptr<EVP_CIPHER_CTX,EVP_CIPHER_CTX_free> ctx(EVP_CIPHER_CTX_new(),EVP_CIPHER_CTX_free);
+ if(!ci||!ctx)return CKR_DEVICE_ERROR;
+ if(EVP_EncryptInit_ex2(ctx.get(),ci.get(),master->secret.data(),nullptr,nullptr)!=1||EVP_CIPHER_CTX_set_padding(ctx.get(),0)!=1)return CKR_DEVICE_ERROR;
+ // Only leading blocks contribute to the requested key; ECB blocks are independent.
+ size_t used=((*length+15)/16)*16;
+ std::vector<unsigned char> value(used+16);int n=0,tail=0;
+ if(EVP_EncryptUpdate(ctx.get(),value.data(),&n,data.pData,(int)used)!=1||EVP_EncryptFinal_ex(ctx.get(),value.data()+n,&tail)!=1)return CKR_DEVICE_ERROR;
+ if(n+tail!=(int)used)return CKR_DEVICE_ERROR;
+ value.resize(*length);
+ Object o;o.h=g.nextObj++;o.cls=CKO_SECRET_KEY;o.type=CKK_AES;
+ o.label=attrstr(attrs,count,CKA_LABEL,"derived-"+std::to_string(o.h));
+ o.id=attrstr(attrs,count,CKA_ID,std::to_string(o.h));o.secret=std::move(value);
+ o.owner=token?0:h;
+ if(token){o.path=(g.root/"symmetric"/(safeLabel(o.label)+".key")).string();auto rv=saveSecret(o);if(rv)return rv;}
+ auto handle=o.h;g.objects.emplace(handle,std::move(o));
+ if(token){auto rv=persistMetadata(g.objects.at(handle).path);if(rv)return rv;}
+ *out=handle;return CKR_OK;
+}
 
 #include "exports.inc"

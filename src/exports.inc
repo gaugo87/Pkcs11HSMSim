@@ -193,7 +193,7 @@ CK_EXPORT CK_RV CK_CALL C_UnwrapKey(CK_SESSION_HANDLE hSession, CK_MECHANISM_PTR
  return boundary(true,[&]()->CK_RV{return UnwrapKey(hSession,pMechanism,hUnwrappingKey,pWrappedKey,ulWrappedKeyLen,pTemplate,ulAttributeCount,phKey);});
 }
 CK_EXPORT CK_RV CK_CALL C_DeriveKey(CK_SESSION_HANDLE hSession, CK_MECHANISM_PTR pMechanism, CK_OBJECT_HANDLE hBaseKey, CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulAttributeCount, CK_OBJECT_HANDLE_PTR phKey) {
- return boundary(true,[&]()->CK_RV{return CKR_FUNCTION_NOT_SUPPORTED;});
+ return boundary(true,[&]()->CK_RV{return DeriveKey(hSession,pMechanism,hBaseKey,pTemplate,ulAttributeCount,phKey);});
 }
 CK_EXPORT CK_RV CK_CALL C_SeedRandom(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pSeed, CK_ULONG ulSeedLen) {
  return boundary(true,[&]()->CK_RV{return CKR_FUNCTION_NOT_SUPPORTED;});

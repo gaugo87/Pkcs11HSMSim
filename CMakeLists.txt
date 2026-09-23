@@ -30,6 +30,11 @@ else()
 endif()
 
 enable_testing()
+add_executable(hsm-derive tests/derive.cpp)
+target_include_directories(hsm-derive PRIVATE include)
+target_link_libraries(hsm-derive PRIVATE hsm-simulator)
+add_test(NAME derive COMMAND ${CMAKE_COMMAND}
+ -DTEST_PROGRAM=$<TARGET_FILE:hsm-derive> -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run.cmake)
 add_executable(hsm-mldsa tests/mldsa.cpp)
 target_include_directories(hsm-mldsa PRIVATE include)
 target_link_libraries(hsm-mldsa PRIVATE hsm-simulator OpenSSL::Crypto)
