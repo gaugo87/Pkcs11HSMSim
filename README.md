@@ -8,6 +8,21 @@ L'implémentation reste partielle : l'intégration des tables 3.2 est terminée,
 mais la compatibilité de remplacement avec un client donné doit encore être
 testée, notamment pour le PQC et sous Windows.
 
+## Organisation du code
+
+Le code est réparti en modules compilés séparément : `src/pkcs11` pour l'interface,
+`src/core` pour l'état en mémoire, `src/objects` pour les attributs et politiques,
+`src/storage` pour la persistance et `src/crypto` pour les opérations EVP.
+
+Le [guide d'architecture et de maintenance](docs/architecture.md) décrit les
+responsabilités, les chemins d'appel, le verrouillage, la propriété des clés et
+les étapes pour ajouter une fonctionnalité. `.clang-format` et `.editorconfig`
+fixent une présentation commune aux sources et aux tests.
+
+Après récupération de cette refonte, reconfigurer le répertoire CMake existant
+pour prendre en compte les nouveaux fichiers, puis recompiler et relancer CTest.
+Les variables d'environnement et le format des clés existantes restent identiques.
+
 ## Compilation VS 2022
 
 Les fichiers PKCS#12 sont sérialisés en mémoire et lus/écrits avec les flux
@@ -261,8 +276,9 @@ Les tokens de test sont conservés sous `out/windows-tests/test-tokens` pour
 diagnostic. Ils contiennent les clés privées de test : partager le journal,
 pas le répertoire complet. Le script renvoie un code non nul en cas d'échec.
 Un succès doit afficher `ML-DSA-44 PASS`, `ML-DSA-65 PASS`, `ML-DSA-87 PASS`
-puis le succès CTest. Ces nouveaux tests restent à exécuter avec OpenSSL 3.5+
-et sous Windows ; leur ajout ne constitue pas une validation réussie.
+puis le succès CTest. Les huit tests ont été validés sous Windows x86 avec
+OpenSSL 3.5.4 par le mainteneur avant la refonte des modules. Une nouvelle
+exécution est nécessaire après recompilation de cette refonte.
 
 ### Résultats précédents
 
@@ -322,4 +338,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-windows.ps1 -
 Sortie du script : `out/windows-tests-x86/Release/hsm-simulator.dll`.
 Les noms des 104 exports sont explicitement définis dans le fichier .def.
 Les assertions du test loader prennent en compte les pointeurs 32 et 64 bits.
-La compilation et l'exécution Windows x86 restent à valider sur la machine cible.
+La version précédant la refonte a passé les huit tests Windows x86/OpenSSL 3.5.4.
+Après mise à jour, relancer la configuration, la compilation et les tests pour
+valider le nouveau découpage sur la machine cible.

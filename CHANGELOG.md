@@ -1,5 +1,19 @@
 # Unreleased
 
+- Refonte de maintenabilité : unités de compilation séparées pour l'interface
+  PKCS#11, les sessions, le stockage, les attributs/politiques et la cryptographie.
+- Noms explicites, indentation homogène, helpers multipart et chargement séparés ;
+  suppression des inclusions de fichiers d'implémentation.
+- Verrouillage et conversion des exceptions centralisés dans la frontière C.
+- Exports C, en-têtes OASIS et formats PKCS#12/hex/HSM1/HSM2 conservés.
+- Guide docs/architecture.md, règles clang-format/editorconfig et cibles CMake
+  facultatives format/check-format. Tests existants reformatés.
+- Compilation CMake de contrôle et sept suites réussies sous Linux/OpenSSL 3.0.13
+  (copie temporaire avec minimum adapté) ; prérequis du dépôt conservé à 3.5.
+  Test ML-DSA compilé ; tests Windows x86/OpenSSL 3.5 à relancer après refonte.
+- Avant refonte : huit suites Windows x86/OpenSSL 3.5.4 et parcours RSA/CSR avec
+  DxSP11KeyGen confirmés fonctionnels par le mainteneur.
+
 - Correction Windows OPENSSL_Uplink/no OPENSSL_Applink : lecture et écriture
   PKCS#12 par buffers DER et flux C++, sans FILE* transmis à OpenSSL.
 - Même correction dans les tests RSA/PSS ; diagnostics ML-DSA via callback
