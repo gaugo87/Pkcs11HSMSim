@@ -1,8 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
 project(hsm-simulator VERSION 0.6.0 LANGUAGES CXX)
-if(WIN32 AND NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
-  message(FATAL_ERROR "The Windows simulator requires an x64 build.")
-endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -13,6 +10,10 @@ find_package(OpenSSL 3.5 REQUIRED COMPONENTS Crypto)
 add_library(hsm-simulator SHARED
     src/module.cpp
 )
+if(WIN32)
+  # Keep PKCS#11 export names undecorated on both Win32 and x64.
+  target_sources(hsm-simulator PRIVATE src/hsm-simulator.def)
+endif()
 target_include_directories(hsm-simulator PUBLIC include)
 target_link_libraries(hsm-simulator PRIVATE OpenSSL::Crypto)
 target_compile_definitions(hsm-simulator PRIVATE HSM_SIM_BUILD)

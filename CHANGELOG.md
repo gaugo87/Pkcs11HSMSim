@@ -1,5 +1,9 @@
 # Unreleased
 
+- Build Windows Win32/x86 autorisé ; preset et option PowerShell -Architecture Win32.
+- Répertoires x86 distincts, exports PKCS#11 non décorés via .def, assertions ABI
+  adaptées aux pointeurs 32/64 bits. Exécution Windows x86 encore non validée.
+
 - Politiques SIGN/VERIFY/WRAP/UNWRAP/DERIVE/EXTRACTABLE/SENSITIVE appliquées,
   attributs MODIFIABLE/DESTROYABLE et SetAttributeValue implémentés.
 - Métadonnées HSM2 par objet, lecture HSM1 rétrocompatible, remplacement

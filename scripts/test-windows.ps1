@@ -6,13 +6,17 @@ param(
     [string]$OpenSslConfig,
     [string]$OpenSslModules,
     [string]$BuildDirectory,
+    [ValidateSet('x64', 'Win32')][string]$Architecture = 'x64',
     [ValidateSet('Release', 'Debug')][string]$Configuration = 'Release',
     [switch]$MldsaOnly
 )
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot -Parent
-if (-not $BuildDirectory) { $BuildDirectory = Join-Path $repoRoot 'out/windows-tests' }
+if (-not $BuildDirectory) {
+    $buildName = if ($Architecture -eq 'Win32') { 'out/windows-tests-x86' } else { 'out/windows-tests' }
+    $BuildDirectory = Join-Path $repoRoot $buildName
+}
 $BuildDirectory = [IO.Path]::GetFullPath($BuildDirectory)
 $OpenSslRoot = (Resolve-Path -LiteralPath $OpenSslRoot).Path
 if (-not $OpenSslBin) { $OpenSslBin = Join-Path $OpenSslRoot 'bin' }
@@ -20,7 +24,7 @@ $OpenSslBin = (Resolve-Path -LiteralPath $OpenSslBin).Path
 $openssl = Join-Path $OpenSslBin 'openssl.exe'
 if (-not (Test-Path -LiteralPath $openssl)) { throw "Missing $openssl" }
 if (-not (Test-Path -LiteralPath (Join-Path $OpenSslRoot 'include/openssl/evp.h'))) {
-    throw 'OpenSslRoot must contain include/openssl and the matching x64 libraries.'
+    throw 'OpenSslRoot must contain include/openssl and the libraries matching the selected architecture.'
 }
 $cmake = (Get-Command cmake -ErrorAction Stop).Source
 $ctest = (Get-Command ctest -ErrorAction Stop).Source
@@ -44,6 +48,7 @@ try {
     if ($OpenSslModules) { $env:OPENSSL_MODULES = (Resolve-Path -LiteralPath $OpenSslModules).Path }
     Write-Host "Source: $repoRoot"
     Write-Host "Build: $BuildDirectory"
+    Write-Host "Architecture: $Architecture"
     Write-Host "OPENSSL_CONF: $env:OPENSSL_CONF"
     Write-Host "OPENSSL_MODULES: $env:OPENSSL_MODULES"
     Invoke-Checked $openssl @('version', '-a')
@@ -52,7 +57,7 @@ try {
     # Native ML-DSA in OpenSSL 3.5 is sufficient. Optional oqsprovider configuration
     # is inherited (or selected above) and is also applied to the test processes.
     $configure = @('-S', $repoRoot, '-B', $BuildDirectory, '-G', 'Visual Studio 17 2022',
-        '-A', 'x64', "-DOPENSSL_ROOT_DIR=$OpenSslRoot", '-DOPENSSL_USE_STATIC_LIBS=FALSE')
+        '-A', $Architecture, "-DOPENSSL_ROOT_DIR=$OpenSslRoot", '-DOPENSSL_USE_STATIC_LIBS=FALSE')
     if ($OpenSslCryptoLibrary) {
         $cryptoLib = (Resolve-Path -LiteralPath $OpenSslCryptoLibrary).Path
         $configure += "-DOPENSSL_CRYPTO_LIBRARY=$cryptoLib"

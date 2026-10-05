@@ -5,10 +5,10 @@
 #ifdef _WIN32
 #include <windows.h>
 static_assert(sizeof(CK_ULONG)==4);
-static_assert(sizeof(CK_ATTRIBUTE)==16);
+static_assert(sizeof(CK_ATTRIBUTE)==2*sizeof(CK_ULONG)+sizeof(void*));
 static_assert(offsetof(CK_FUNCTION_LIST,C_Initialize)==2);
-static_assert(sizeof(CK_FUNCTION_LIST)==2+68*8);
-static_assert(sizeof(CK_FUNCTION_LIST_3_2)==2+104*8);
+static_assert(sizeof(CK_FUNCTION_LIST)==2+68*sizeof(CK_C_Initialize));
+static_assert(sizeof(CK_FUNCTION_LIST_3_2)==2+104*sizeof(CK_C_Initialize));
 static_assert(offsetof(CK_FUNCTION_LIST_3_2,C_GetInterfaceList)==sizeof(CK_FUNCTION_LIST));
 #else
 #include <dlfcn.h>

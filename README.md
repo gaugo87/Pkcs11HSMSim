@@ -1,6 +1,6 @@
 # HSM Simulator — 0.6.0
 
-Simulateur C++ pour Windows x64 / Visual Studio 2022, utilisant OpenSSL 3.5+.
+Simulateur C++ pour Windows x86 et x64 / Visual Studio 2022, utilisant OpenSSL 3.5+.
 L'interface utilise désormais les en-têtes officiels OASIS PKCS#11 3.2 fournis,
 conservés sans modification dans include/oasis.
 
@@ -10,7 +10,7 @@ testée, notamment pour le PQC et sous Windows.
 
 ## Compilation VS 2022
 
-OpenSSL est supposé déjà compilé en x64. Aucun téléchargement n'est effectué
+OpenSSL est supposé déjà compilé pour la même architecture que le simulateur. Aucun téléchargement n'est effectué
 par le preset CMake ; vcpkg n'est pas requis.
 
 ```powershell
@@ -21,7 +21,7 @@ ctest --test-dir out/build -C Release --output-on-failure
 
 Sortie : out/build/Release/hsm-simulator.dll. Les DLL OpenSSL correspondantes
 doivent être accessibles au processus client et aux tests (par exemple via PATH).
-Le build Windows est limité à x64.
+La DLL et l’application cliente doivent avoir la même architecture.
 
 ## Interface
 
@@ -208,8 +208,8 @@ Le test `policy` est intégré à CTest et au script Windows ; Windows/OpenSSL
 
 ### Tester sur Windows avec votre OpenSSL 3.5+
 
-Prérequis : Visual Studio 2022 avec les outils C++ x64 et le SDK Windows,
-CMake 3.24+ et CTest dans le PATH, une installation OpenSSL x64 avec ses
+Prérequis : Visual Studio 2022 avec les outils C++ x86/x64 et le SDK Windows,
+CMake 3.24+ et CTest dans le PATH, une installation OpenSSL de la même architecture avec ses
 en-têtes, bibliothèques d'import et DLL correspondantes. Aucun build GitHub
 Actions n'est déclenché par ces scripts.
 
@@ -293,3 +293,27 @@ compilation Windows.
 Les points d'entrée convertissent les exceptions C++ en codes PKCS#11 et
 sérialisent les accès via un verrou commun. Cela ne rend pas valides les
 pointeurs erronés d'un client et ne protège pas réellement les clés sur disque.
+
+## Compilation Windows 32 bits (x86)
+
+Utiliser OpenSSL 3.5+ **x86** (headers, .lib, DLL), ainsi que les éventuels
+providers oqs et leurs dépendances x86. Ne pas réutiliser le répertoire de
+build x64 : CMake mémorise l'architecture du générateur.
+
+```powershell
+git pull
+cmake -S . -B out/build-x86 -G "Visual Studio 17 2022" -A Win32 -DOPENSSL_ROOT_DIR="C:\OpenSSL-3.5-x86"
+cmake --build out/build-x86 --config Release
+```
+
+Sortie : `out/build-x86/Release/hsm-simulator.dll`.
+Pour compiler et tester via le script (répertoire distinct automatique) :
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-windows.ps1 -Architecture Win32 -OpenSslRoot "C:\OpenSSL-3.5-x86"
+```
+
+Sortie du script : `out/windows-tests-x86/Release/hsm-simulator.dll`.
+Les noms des 104 exports sont explicitement définis dans le fichier .def.
+Les assertions du test loader prennent en compte les pointeurs 32 et 64 bits.
+La compilation et l'exécution Windows x86 restent à valider sur la machine cible.
