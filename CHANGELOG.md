@@ -1,5 +1,10 @@
 # Unreleased
 
+- Correction Windows OPENSSL_Uplink/no OPENSSL_Applink : lecture et écriture
+  PKCS#12 par buffers DER et flux C++, sans FILE* transmis à OpenSSL.
+- Même correction dans les tests RSA/PSS ; diagnostics ML-DSA via callback
+  sans stderr transmis à OpenSSL. Aucun applink.c requis dans le client.
+
 - Build Windows Win32/x86 autorisé ; preset et option PowerShell -Architecture Win32.
 - Répertoires x86 distincts, exports PKCS#11 non décorés via .def, assertions ABI
   adaptées aux pointeurs 32/64 bits. Exécution Windows x86 encore non validée.

@@ -5,6 +5,8 @@
 #include <openssl/ec.h>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <limits>
 #include <iostream>
 #include <stdexcept>
 #include <vector>
@@ -50,8 +52,11 @@ static void exercise(CK_MECHANISM_TYPE gen, CK_MECHANISM_TYPE mechanism,
  // Independent EVP verification for raw RSA (detects accidental rehashing).
  {
   auto path=std::filesystem::path(std::getenv("HSM_SIM_DATA_DIR"))/"asymmetric"/(std::string(label)+".p12");
-  FILE* in=std::fopen(path.string().c_str(),"rb");CHECK(in);
-  PKCS12* p12=d2i_PKCS12_fp(in,nullptr);std::fclose(in);CHECK(p12);
+  std::ifstream in(path,std::ios::binary);CHECK(in.good());
+  std::vector<unsigned char> der((std::istreambuf_iterator<char>(in)),{});
+  CHECK(!in.bad()&&!der.empty()&&der.size()<=static_cast<size_t>(std::numeric_limits<long>::max()));
+  const unsigned char* cursor=der.data();
+  PKCS12* p12=d2i_PKCS12(nullptr,&cursor,static_cast<long>(der.size()));CHECK(p12);
   EVP_PKEY* key=nullptr;X509* cert=nullptr;CHECK(PKCS12_parse(p12,"",&key,&cert,nullptr)==1);
   EVP_PKEY_CTX* ctx=EVP_PKEY_CTX_new(key,nullptr);CHECK(ctx);
   std::vector<unsigned char> externalSig=signature;

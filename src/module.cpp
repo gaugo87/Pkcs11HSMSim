@@ -72,21 +72,27 @@ CK_RV persistMetadata(std::string path){
 }
 std::shared_ptr<EVP_PKEY> pubkey(EVP_PKEY* p){unsigned char* der=nullptr;int n=i2d_PUBKEY(p,&der);if(n<=0)return{};const unsigned char* q=der;EVP_PKEY* out=d2i_PUBKEY(nullptr,&q,n);OPENSSL_free(der);return {out,EVP_PKEY_free};}
 void addKeyObjects(const std::string& label,const fs::path& path,EVP_PKEY* raw,X509* cert){auto key=std::shared_ptr<EVP_PKEY>(raw,EVP_PKEY_free);auto id=stableId(path.filename().string());Object priv{g.nextObj++,CKO_PRIVATE_KEY,typeOf(raw),label,id,path.string(),pkeyName(raw),{}, {},key};g.objects.emplace(priv.h,priv);auto pub=pubkey(raw);if(pub){Object po{g.nextObj++,CKO_PUBLIC_KEY,priv.type,label,id,path.string(),priv.param,{}, {},pub};g.objects.emplace(po.h,std::move(po));}if(cert){unsigned char* d=nullptr;int n=i2d_X509(cert,&d);Object co{g.nextObj++,CKO_CERTIFICATE,0,label,id,path.string()};if(n>0){co.cert.assign(d,d+n);OPENSSL_free(d);}g.objects.emplace(co.h,std::move(co));X509_free(cert);}}
-void load(){g.objects.clear();g.nextObj=1;fs::create_directories(g.root/"asymmetric");fs::create_directories(g.root/"symmetric");std::string pass=env("HSM_SIM_P12_PASSWORD","");for(auto& e:fs::directory_iterator(g.root/"asymmetric")){if(e.path().extension() != ".p12" && e.path().extension() != ".pfx")continue;FILE* f=nullptr;
-#ifdef _WIN32
- _wfopen_s(&f,e.path().c_str(),L"rb");
-#else
- f=std::fopen(e.path().c_str(),"rb");
-#endif
- if(!f)continue;PKCS12* p=d2i_PKCS12_fp(f,nullptr);std::fclose(f);if(!p)continue;EVP_PKEY* k=nullptr;X509* c=nullptr;if(PKCS12_parse(p,pass.c_str(),&k,&c,nullptr)==1&&k)addKeyObjects(e.path().stem().string(),e.path(),k,c);PKCS12_free(p);}for(auto& e:fs::directory_iterator(g.root/"symmetric")){if(e.path().extension()!=".key")continue;std::ifstream in(e.path());std::string s((std::istreambuf_iterator<char>(in)),{});auto b=unhex(s);if(b.empty())continue;Object o{g.nextObj++,CKO_SECRET_KEY,CKK_AES,e.path().stem().string(),stableId(e.path().filename().string()),e.path().string(),{},std::move(b)};g.objects.emplace(o.h,std::move(o));}for(auto& [handle,o]:g.objects){auto records=metadata::read(o.path);auto record=records.find((std::uint32_t)o.cls);if(record!=records.end()){o.label=record->second.label;o.id=record->second.id;o.policy=record->second.policy;}}}
+void load(){g.objects.clear();g.nextObj=1;fs::create_directories(g.root/"asymmetric");fs::create_directories(g.root/"symmetric");std::string pass=env("HSM_SIM_P12_PASSWORD","");for(auto& e:fs::directory_iterator(g.root/"asymmetric")){if(e.path().extension() != ".p12" && e.path().extension() != ".pfx")continue;// Keep CRT file handles inside this module; OpenSSL only sees DER bytes.
+ std::ifstream in(e.path(),std::ios::binary);if(!in)continue;
+ std::vector<unsigned char> der((std::istreambuf_iterator<char>(in)),{});
+ if(in.bad()||der.empty()||der.size()>static_cast<size_t>(std::numeric_limits<long>::max()))continue;
+ const unsigned char* cursor=der.data();
+ PKCS12* p=d2i_PKCS12(nullptr,&cursor,static_cast<long>(der.size()));
+ if(!p)continue;EVP_PKEY* k=nullptr;X509* c=nullptr;if(PKCS12_parse(p,pass.c_str(),&k,&c,nullptr)==1&&k)addKeyObjects(e.path().stem().string(),e.path(),k,c);PKCS12_free(p);}for(auto& e:fs::directory_iterator(g.root/"symmetric")){if(e.path().extension()!=".key")continue;std::ifstream in(e.path());std::string s((std::istreambuf_iterator<char>(in)),{});auto b=unhex(s);if(b.empty())continue;Object o{g.nextObj++,CKO_SECRET_KEY,CKK_AES,e.path().stem().string(),stableId(e.path().filename().string()),e.path().string(),{},std::move(b)};g.objects.emplace(o.h,std::move(o));}for(auto& [handle,o]:g.objects){auto records=metadata::read(o.path);auto record=records.find((std::uint32_t)o.cls);if(record!=records.end()){o.label=record->second.label;o.id=record->second.id;o.policy=record->second.policy;}}}
 CK_RV saveSecret(Object& o){if(fs::exists(o.path))return CKR_TEMPLATE_INCONSISTENT;std::ofstream f(o.path,std::ios::trunc);if(!f)return CKR_DEVICE_ERROR;f<<hex(o.secret.data(),o.secret.size())<<"\n";return f?CKR_OK:CKR_DEVICE_ERROR;}
-CK_RV saveP12(const fs::path& path,EVP_PKEY* key,const std::string& label){if(fs::exists(path))return CKR_TEMPLATE_INCONSISTENT;std::string pass=env("HSM_SIM_P12_PASSWORD","");PKCS12* p=PKCS12_create(pass.c_str(),label.c_str(),key,nullptr,nullptr,0,0,0,0,0);if(!p)return CKR_DEVICE_ERROR;FILE* f=nullptr;
-#ifdef _WIN32
- _wfopen_s(&f,path.c_str(),L"wb");
-#else
- f=std::fopen(path.c_str(),"wb");
-#endif
- int ok=f?i2d_PKCS12_fp(f,p):0;if(f)std::fclose(f);PKCS12_free(p);return ok?CKR_OK:CKR_DEVICE_ERROR;}
+CK_RV saveP12(const fs::path& path,EVP_PKEY* key,const std::string& label){
+ if(fs::exists(path))return CKR_TEMPLATE_INCONSISTENT;
+ std::string pass=env("HSM_SIM_P12_PASSWORD","");
+ ossl_ptr<PKCS12,PKCS12_free> p(PKCS12_create(pass.c_str(),label.c_str(),key,nullptr,nullptr,0,0,0,0,0),PKCS12_free);
+ if(!p)return CKR_DEVICE_ERROR;
+ int length=i2d_PKCS12(p.get(),nullptr);if(length<=0)return CKR_DEVICE_ERROR;
+ std::vector<unsigned char> der(static_cast<size_t>(length));auto cursor=der.data();
+ if(i2d_PKCS12(p.get(),&cursor)!=length)return CKR_DEVICE_ERROR;
+ std::ofstream out(path,std::ios::binary|std::ios::trunc);if(!out)return CKR_DEVICE_ERROR;
+ out.write(reinterpret_cast<const char*>(der.data()),length);out.close();
+ return out?CKR_OK:CKR_DEVICE_ERROR;
+}
+
 bool isPss(CK_MECHANISM_TYPE m){return m==CKM_RSA_PKCS_PSS||m==CKM_SHA256_RSA_PKCS_PSS||m==CKM_SHA384_RSA_PKCS_PSS||m==CKM_SHA512_RSA_PKCS_PSS;}
 bool compatible(CK_KEY_TYPE t,CK_MECHANISM_TYPE m){if(t==CKK_RSA)return isPss(m)||m==CKM_RSA_PKCS||m==CKM_SHA256_RSA_PKCS||m==CKM_SHA384_RSA_PKCS||m==CKM_SHA512_RSA_PKCS;if(t==CKK_EC)return m==CKM_ECDSA||m==CKM_ECDSA_SHA256||m==CKM_ECDSA_SHA384||m==CKM_ECDSA_SHA512;if(t==CKK_ML_DSA)return m==CKM_ML_DSA;if(t==CKK_SLH_DSA)return m==CKM_SLH_DSA;return false;}
 const EVP_MD* pssHash(CK_MECHANISM_TYPE m){switch(m){case CKM_SHA256:return EVP_sha256();case CKM_SHA384:return EVP_sha384();case CKM_SHA512:return EVP_sha512();default:return nullptr;}}

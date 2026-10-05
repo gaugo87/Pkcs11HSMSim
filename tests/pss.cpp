@@ -3,6 +3,8 @@
 #include <openssl/pkcs12.h>
 #include <openssl/rsa.h>
 #include <filesystem>
+#include <fstream>
+#include <limits>
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
@@ -21,8 +23,11 @@ int main(){
   CK_ATTRIBUTE attrs[]={{CKA_LABEL,label,3},{CKA_MODULUS_BITS,&bits,sizeof bits}};
   CK_OBJECT_HANDLE pub,priv;CHECK(f->C_GenerateKeyPair(session,&kg,attrs,2,attrs,1,&pub,&priv)==CKR_OK);
   auto path=std::filesystem::path(std::getenv("HSM_SIM_DATA_DIR"))/"asymmetric"/"pss.p12";
-  FILE* in=std::fopen(path.string().c_str(),"rb");CHECK(in);
-  PKCS12* p12=d2i_PKCS12_fp(in,nullptr);std::fclose(in);CHECK(p12);
+  std::ifstream in(path,std::ios::binary);CHECK(in.good());
+  std::vector<unsigned char> der((std::istreambuf_iterator<char>(in)),{});
+  CHECK(!in.bad()&&!der.empty()&&der.size()<=static_cast<size_t>(std::numeric_limits<long>::max()));
+  const unsigned char* cursor=der.data();
+  PKCS12* p12=d2i_PKCS12(nullptr,&cursor,static_cast<long>(der.size()));CHECK(p12);
   EVP_PKEY* key=nullptr;X509* cert=nullptr;CHECK(PKCS12_parse(p12,"",&key,&cert,nullptr)==1);
   PKCS12_free(p12);X509_free(cert);
   struct Mode{CK_MECHANISM_TYPE mechanism,hash;CK_ULONG mgf;const EVP_MD* md;};

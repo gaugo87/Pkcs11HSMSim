@@ -171,6 +171,8 @@ int main() {
         std::cout << checks << " ML-DSA checks passed\n"; return 0;
     } catch (const std::exception& e) {
         std::cerr << "FAIL after " << checks << " checks: " << e.what() << '\n';
-        ERR_print_errors_fp(stderr); if (f) f->C_Finalize(nullptr); return 1;
+        ERR_print_errors_cb([](const char* text,size_t length,void*) -> int {
+            std::cerr.write(text,static_cast<std::streamsize>(length));return 1;
+        },nullptr); if (f) f->C_Finalize(nullptr); return 1;
     }
 }

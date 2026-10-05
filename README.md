@@ -10,6 +10,12 @@ testée, notamment pour le PQC et sous Windows.
 
 ## Compilation VS 2022
 
+Les fichiers PKCS#12 sont sérialisés en mémoire et lus/écrits avec les flux
+C++ : aucun FILE* n'est partagé avec OpenSSL. L'application cliente n'a pas
+à intégrer applink.c. Si une ancienne version échoue avec
+`OPENSSL_Uplink(...): no OPENSSL_Applink`, mettre à jour puis recompiler
+la DLL et les exécutables de test.
+
 OpenSSL est supposé déjà compilé pour la même architecture que le simulateur. Aucun téléchargement n'est effectué
 par le preset CMake ; vcpkg n'est pas requis.
 
