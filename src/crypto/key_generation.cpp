@@ -45,7 +45,8 @@ CK_RV GenerateKey(CK_SESSION_HANDLE sessionHandle, CK_MECHANISM_PTR mechanism,
     object.label = templateString(attributes, attributeCount, CKA_LABEL, "aes-key");
     object.id = templateString(attributes, attributeCount, CKA_ID, std::to_string(object.handle));
     object.path =
-        (runtime.storageRoot / "symmetric" / (safeFilename(object.label) + ".key")).string();
+        (sessionSlot(sessionHandle).directory / "symmetric" / (safeFilename(object.label) + ".key"))
+            .string();
     result = applyCreationTemplate(object, sessionHandle, attributes, attributeCount);
     if (result)
     {
@@ -169,15 +170,18 @@ CK_RV GenerateKeyPair(CK_SESSION_HANDLE sessionHandle, CK_MECHANISM_PTR mechanis
     }
     std::string label = templateString(privateTemplate, privateCount, CKA_LABEL,
         templateString(publicTemplate, publicCount, CKA_LABEL, "generated-key"));
-    fs::path path = runtime.storageRoot / "asymmetric" / (safeFilename(label) + ".p12");
-    auto result = privatePolicy.ownerSession ? CKR_OK : saveKeyPair(path, raw, label);
+    fs::path path =
+        sessionSlot(sessionHandle).directory / "asymmetric" / (safeFilename(label) + ".p12");
+    auto result = privatePolicy.ownerSession
+        ? CKR_OK
+        : saveKeyPair(sessionSlot(sessionHandle), path, raw, label);
     if (result)
     {
         EVP_PKEY_free(raw);
         return result;
     }
     CK_OBJECT_HANDLE privateObjectHandle = runtime.nextObjectHandle;
-    registerKeyPair(label, path, raw, nullptr);
+    registerKeyPair(sessionSlot(sessionHandle).id, label, path, raw, nullptr);
     auto commonId = templateString(privateTemplate, privateCount, CKA_ID,
         templateString(
             publicTemplate, publicCount, CKA_ID, runtime.objects.at(privateObjectHandle).id));

@@ -1,4 +1,4 @@
-# HSM Simulator — 0.6.0
+# HSM Simulator — 0.7.0
 
 Simulateur C++ pour Windows x86 et x64 / Visual Studio 2022, utilisant OpenSSL 3.5+.
 L'interface utilise désormais les en-têtes officiels OASIS PKCS#11 3.2 fournis,
@@ -63,12 +63,26 @@ pkcs11f.h plutôt qu'une liste d'offsets recopiée.
 
 | Variable | Défaut | Usage |
 |---|---|---|
-| HSM_SIM_DATA_DIR | data | Racine du token |
-| HSM_SIM_PIN | vide | PIN simplifié ; vide accepte tout PIN |
-| HSM_SIM_P12_PASSWORD | vide | Mot de passe commun des PKCS#12 |
+| HSM_SIM_DATA_DIR | data | Racine des répertoires de slots |
+| HSM_SIM_PIN | vide | PIN utilisateur de secours si le slot ne contient pas `pin.txt` |
+| HSM_SIM_P12_PASSWORD | vide | Mot de passe PKCS#12 de secours si le slot ne contient pas `p12-password.txt` |
 
-asymmetric/ contient les .p12/.pfx ; symmetric/ contient les clés AES .key
-en hexadécimal. Les clés sont chargées à C_Initialize.
+Chaque sous-répertoire `slotID_SlotLABEL` définit un slot : par exemple
+`data/0_DEV/` et `data/1_TEST/`. Le nombre est l'identifiant PKCS#11 ; la suite
+est le label du token. Les slots sont listés par identifiant numérique croissant.
+Chaque slot contient `asymmetric/`, `symmetric/` et son fichier `pin.txt`.
+
+Le [guide des slots et des PIN](docs/slots.md) donne les commandes Windows,
+la migration de l'ancien stockage et les règles de login, changement et
+réinitialisation du PIN. `C_SetPIN` et `C_InitPIN` sont maintenant implémentés.
+Un slot nommé sans PIN n'autorise pas l'utilisation des clés : créer `pin.txt`,
+fournir `HSM_SIM_PIN`, ou initialiser le PIN utilisateur avec un PIN SO configuré.
+
+Dans chaque slot, `asymmetric/` contient les .p12/.pfx ; `symmetric/` contient
+les clés AES .key en hexadécimal. Les slots, PIN et clés sont chargés à
+`C_Initialize`. L'ancienne arborescence directement sous `data/` reste acceptée
+comme slot 1 ; sans PIN utilisateur ni SO, elle conserve le fonctionnement
+historique permissif. Ne pas mélanger les deux arborescences.
 Un PKCS#12 expose une clé privée, une clé publique et un certificat si présent.
 La génération n'invente pas de certificat.
 
@@ -131,7 +145,7 @@ En ECB, modifier un bloc écarté par la troncature ne change pas la clé :
 l'application doit préparer les blocs de contexte effectivement utilisés.
 
 Une clé dérivée est un objet de session par défaut (`CKA_TOKEN=FALSE`),
-visible aux autres sessions du même processus, détruit à la fermeture de la
+visible aux autres sessions du même slot et du même processus, détruit à la fermeture de la
 session créatrice. `CKA_TOKEN=TRUE` la persiste dans `symmetric/` avec ses
 métadonnées et exige une session RW. `CKA_TOKEN=FALSE` est également pris
 en charge pour la génération et l'unwrapping.
@@ -212,7 +226,9 @@ Le renommage du label ne renomme pas le fichier de clé.
 
 Limites : ce n'est pas l'ensemble des attributs PKCS#11. `CKA_ENCRYPT`,
 `CKA_DECRYPT` et `CKA_PRIVATE` sont mémorisés, mais Encrypt/Decrypt restent
-non implémentés et PRIVATE n'ajoute pas de contrôle d'accès au login simplifié.
+non implémentés. Dans un slot protégé, PRIVATE masque l'objet sans login USER.
+Les clés privées et AES sont toujours protégées par le PIN, même avec
+`CKA_PRIVATE=FALSE`. Les mutations d'objets exigent également le login USER.
 Les attributs historiques LOCAL/ALWAYS_SENSITIVE/NEVER_EXTRACTABLE et les
 templates de politique imbriqués ne sont pas exposés.
 Les deux membres d'une paire générée doivent avoir la même valeur TOKEN ;
@@ -270,7 +286,12 @@ AES-KW sans padding exige un PKCS#8 aligné sur 8 octets ; sinon le test
 attend son rejet et effectue le parcours complet avec AES-KWP.
 Ce test ne couvre pas HashML-DSA, les contextes non vides ni SLH-DSA.
 
-CTest crée un token isolé pour chaque test. Les journaux sont dans
+Le test `slots` couvre plusieurs tokens, l'isolation des handles, les sessions
+partagées, les rôles USER/SO, les PIN incorrects, `C_SetPIN`/`C_InitPIN`, la
+persistance des PIN, et RSA/AES/dérivation/wrapping après rechargement. Il est
+inclus dans CTest et dans le script Windows sans `-MldsaOnly`.
+
+CTest crée un répertoire isolé pour chaque test. Les journaux sont dans
 `out/windows-tests/test-*.log` et `out/windows-tests/Testing/Temporary/LastTest.log`.
 Les tokens de test sont conservés sous `out/windows-tests/test-tokens` pour
 diagnostic. Ils contiennent les clés privées de test : partager le journal,
@@ -304,8 +325,7 @@ compilation Windows.
 
 - PQC : contextes, hedge/déterminisme, variantes avec hachage et tests de tous
   les parameter sets avec OpenSSL 3.5.
-- Login partagé entre sessions, contrôle d'accès PRIVATE, attributs de certificats,
-  suppression individuelle des objets.
+- Attributs de certificats et suppression individuelle des objets.
 - Validation exhaustive des arguments/états et diagnostic des imports invalides.
 - Écritures transactionnelles et accès interprocessus.
 - Tests natifs VS2022 et tests avec une application PKCS#11 externe.

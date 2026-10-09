@@ -162,6 +162,11 @@ CK_RV applyCreationTemplate(Object& object, CK_SESSION_HANDLE sessionHandle,
     {
         return CKR_SESSION_READ_ONLY;
     }
+    if (auto access = requireUserLogin(sessionHandle); access != CKR_OK)
+    {
+        return access;
+    }
+    object.slotId = findSession(sessionHandle)->slotId;
     object.ownerSession = token ? 0 : sessionHandle;
     applyPolicyTemplate(object, attributes, attributeCount);
     if (object.ownerSession)

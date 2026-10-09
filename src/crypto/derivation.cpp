@@ -44,10 +44,14 @@ CK_RV DeriveKey(CK_SESSION_HANDLE sessionHandle, CK_MECHANISM_PTR mechanism,
     {
         return CKR_DATA_LEN_RANGE;
     }
-    auto* master = findObject(baseKey);
+    auto* master = findObject(sessionHandle, baseKey);
     if (!master)
     {
         return CKR_KEY_HANDLE_INVALID;
+    }
+    if (auto access = requireUserLogin(sessionHandle); access != CKR_OK)
+    {
+        return access;
     }
     if (!policyValue(*master, CKA_DERIVE))
     {
@@ -184,6 +188,7 @@ CK_RV DeriveKey(CK_SESSION_HANDLE sessionHandle, CK_MECHANISM_PTR mechanism,
     value.resize(*requestedLength);
     Object object;
     object.handle = runtime.nextObjectHandle++;
+    object.slotId = session->slotId;
     object.objectClass = CKO_SECRET_KEY;
     object.keyType = CKK_AES;
     object.label = templateString(
@@ -194,8 +199,9 @@ CK_RV DeriveKey(CK_SESSION_HANDLE sessionHandle, CK_MECHANISM_PTR mechanism,
     applyPolicyTemplate(object, attributes, attributeCount);
     if (token)
     {
-        object.path =
-            (runtime.storageRoot / "symmetric" / (safeFilename(object.label) + ".key")).string();
+        object.path = (sessionSlot(sessionHandle).directory / "symmetric" /
+            (safeFilename(object.label) + ".key"))
+                          .string();
         auto result = saveSecretKey(object);
         if (result)
         {

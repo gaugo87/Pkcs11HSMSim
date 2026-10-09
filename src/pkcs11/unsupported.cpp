@@ -7,18 +7,6 @@ CK_EXPORT CK_RV CK_CALL C_InitToken(
     return hsm::unsupportedOperation();
 }
 
-CK_EXPORT CK_RV CK_CALL C_InitPIN(
-    CK_SESSION_HANDLE hSession, CK_UTF8CHAR_PTR pPin, CK_ULONG ulPinLen)
-{
-    return hsm::unsupportedOperation();
-}
-
-CK_EXPORT CK_RV CK_CALL C_SetPIN(CK_SESSION_HANDLE hSession, CK_UTF8CHAR_PTR pOldPin,
-    CK_ULONG ulOldLen, CK_UTF8CHAR_PTR pNewPin, CK_ULONG ulNewLen)
-{
-    return hsm::unsupportedOperation();
-}
-
 CK_EXPORT CK_RV CK_CALL C_GetOperationState(
     CK_SESSION_HANDLE hSession, CK_BYTE_PTR pOperationState, CK_ULONG_PTR pulOperationStateLen)
 {

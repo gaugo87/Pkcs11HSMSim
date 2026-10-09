@@ -125,10 +125,15 @@ CK_RV WrapKey(CK_SESSION_HANDLE sessionHandle, CK_MECHANISM_PTR mechanism,
     {
         return CKR_ARGUMENTS_BAD;
     }
-    auto *wrappingKey = findObject(wrappingHandle), *key = findObject(keyHandle);
+    auto *wrappingKey = findObject(sessionHandle, wrappingHandle),
+         *key = findObject(sessionHandle, keyHandle);
     if (!wrappingKey || !key)
     {
         return CKR_KEY_HANDLE_INVALID;
+    }
+    if (auto access = requireUserLogin(sessionHandle); access != CKR_OK)
+    {
+        return access;
     }
     if (!policyValue(*wrappingKey, CKA_WRAP))
     {
@@ -162,10 +167,14 @@ CK_RV UnwrapKey(CK_SESSION_HANDLE sessionHandle, CK_MECHANISM_PTR mechanism,
     {
         return CKR_ARGUMENTS_BAD;
     }
-    auto* wrappingKey = findObject(wrappingHandle);
+    auto* wrappingKey = findObject(sessionHandle, wrappingHandle);
     if (!wrappingKey)
     {
         return CKR_KEY_HANDLE_INVALID;
+    }
+    if (auto access = requireUserLogin(sessionHandle); access != CKR_OK)
+    {
+        return access;
     }
     if (!policyValue(*wrappingKey, CKA_UNWRAP))
     {
@@ -200,7 +209,9 @@ CK_RV UnwrapKey(CK_SESSION_HANDLE sessionHandle, CK_MECHANISM_PTR mechanism,
         object.label = label;
         object.id = templateString(
             attributes, attributeCount, CKA_ID, std::to_string(runtime.nextObjectHandle));
-        object.path = (runtime.storageRoot / "symmetric" / (safeFilename(label) + ".key")).string();
+        object.path =
+            (sessionSlot(sessionHandle).directory / "symmetric" / (safeFilename(label) + ".key"))
+                .string();
         object.secretValue = raw;
         result = applyCreationTemplate(object, sessionHandle, attributes, attributeCount);
         if (result)
@@ -258,15 +269,17 @@ CK_RV UnwrapKey(CK_SESSION_HANDLE sessionHandle, CK_MECHANISM_PTR mechanism,
         EVP_PKEY_free(key);
         return result;
     }
-    fs::path path = runtime.storageRoot / "asymmetric" / (safeFilename(label) + ".p12");
-    result = privatePolicy.ownerSession ? CKR_OK : saveKeyPair(path, key, label);
+    fs::path path =
+        sessionSlot(sessionHandle).directory / "asymmetric" / (safeFilename(label) + ".p12");
+    result = privatePolicy.ownerSession ? CKR_OK
+                                        : saveKeyPair(sessionSlot(sessionHandle), path, key, label);
     if (result)
     {
         EVP_PKEY_free(key);
         return result;
     }
     CK_OBJECT_HANDLE privateObjectHandle = runtime.nextObjectHandle;
-    registerKeyPair(label, path, key, nullptr);
+    registerKeyPair(sessionSlot(sessionHandle).id, label, path, key, nullptr);
     auto id = templateString(
         attributes, attributeCount, CKA_ID, runtime.objects.at(privateObjectHandle).id);
     runtime.objects.at(privateObjectHandle).id = id;

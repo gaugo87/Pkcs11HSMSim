@@ -1,6 +1,7 @@
 #include "pkcs11/sessions.hpp"
 #include "core/runtime.hpp"
-#include "core/utilities.hpp"
+#include "storage/slots.hpp"
+#include <algorithm>
 
 namespace hsm
 {
@@ -8,69 +9,82 @@ namespace hsm
 CK_RV OpenSession(
     CK_SLOT_ID slotId, CK_FLAGS flags, CK_VOID_PTR, CK_NOTIFY, CK_SESSION_HANDLE_PTR sessionHandle)
 {
-    if (initializationStatus())
-    {
-        return initializationStatus();
-    }
-    if (slotId != virtualSlotId)
+    auto* slot = findSlot(slotId);
+    if (!slot)
     {
         return CKR_SLOT_ID_INVALID;
     }
-    if (!sessionHandle || !(flags & CKF_SERIAL_SESSION))
+    if (!sessionHandle)
     {
         return CKR_ARGUMENTS_BAD;
     }
-    Session session{runtime.nextSessionHandle++, flags};
-    *sessionHandle = session.handle;
-    runtime.sessions.emplace(session.handle, std::move(session));
+    if (!(flags & CKF_SERIAL_SESSION))
+    {
+        return CKR_SESSION_PARALLEL_NOT_SUPPORTED;
+    }
+    if (!(flags & CKF_RW_SESSION) && slot->loggedInUser == CKU_SO)
+    {
+        return CKR_SESSION_READ_WRITE_SO_EXISTS;
+    }
+    Session session;
+    session.handle = runtime.nextSessionHandle++;
+    session.slotId = slotId;
+    session.flags = flags;
+    const auto handle = session.handle;
+    runtime.sessions.emplace(handle, std::move(session));
+    *sessionHandle = handle;
     return CKR_OK;
 }
 
 CK_RV CloseSession(CK_SESSION_HANDLE sessionHandle)
 {
-    if (!runtime.sessions.erase(sessionHandle))
+    auto* session = findSession(sessionHandle);
+    if (!session)
     {
         return CKR_SESSION_HANDLE_INVALID;
     }
-    for (auto it = runtime.objects.begin(); it != runtime.objects.end();)
+    const auto slotId = session->slotId;
+    runtime.sessions.erase(sessionHandle);
+    std::erase_if(runtime.objects,
+        [sessionHandle](const auto& entry)
+        {
+            return entry.second.ownerSession == sessionHandle;
+        });
+    if (std::none_of(runtime.sessions.begin(), runtime.sessions.end(),
+            [slotId](const auto& entry)
+            {
+                return entry.second.slotId == slotId;
+            }))
     {
-        if (it->second.ownerSession == sessionHandle)
-        {
-            it = runtime.objects.erase(it);
-        }
-        else
-        {
-            ++it;
-        }
+        runtime.slots.at(slotId).loggedInUser.reset();
     }
     return CKR_OK;
 }
 
 CK_RV CloseAllSessions(CK_SLOT_ID slotId)
 {
-    if (slotId != virtualSlotId)
+    auto* slot = findSlot(slotId);
+    if (!slot)
     {
         return CKR_SLOT_ID_INVALID;
     }
-
-    runtime.sessions.clear();
-    for (auto it = runtime.objects.begin(); it != runtime.objects.end();)
-    {
-        if (it->second.ownerSession)
+    std::erase_if(runtime.sessions,
+        [slotId](const auto& entry)
         {
-            it = runtime.objects.erase(it);
-        }
-        else
+            return entry.second.slotId == slotId;
+        });
+    std::erase_if(runtime.objects,
+        [slotId](const auto& entry)
         {
-            ++it;
-        }
-    }
+            return entry.second.slotId == slotId && entry.second.ownerSession != 0;
+        });
+    slot->loggedInUser.reset();
     return CKR_OK;
 }
 
 CK_RV GetSessionInfo(CK_SESSION_HANDLE sessionHandle, CK_SESSION_INFO_PTR info)
 {
-    auto* session = findSession(sessionHandle);
+    const auto* session = findSession(sessionHandle);
     if (!session)
     {
         return CKR_SESSION_HANDLE_INVALID;
@@ -79,11 +93,23 @@ CK_RV GetSessionInfo(CK_SESSION_HANDLE sessionHandle, CK_SESSION_INFO_PTR info)
     {
         return CKR_ARGUMENTS_BAD;
     }
-    info->slotID = virtualSlotId;
+    const auto& slot = sessionSlot(sessionHandle);
+    info->slotID = session->slotId;
     info->flags = session->flags;
-    info->state = session->loggedIn
-        ? ((session->flags & CKF_RW_SESSION) ? CKS_RW_USER_FUNCTIONS : CKS_RO_USER_FUNCTIONS)
-        : ((session->flags & CKF_RW_SESSION) ? CKS_RW_PUBLIC_SESSION : CKS_RO_PUBLIC_SESSION);
+    if (slot.loggedInUser == CKU_SO)
+    {
+        info->state = CKS_RW_SO_FUNCTIONS;
+    }
+    else if (slot.loggedInUser == CKU_USER)
+    {
+        info->state =
+            (session->flags & CKF_RW_SESSION) ? CKS_RW_USER_FUNCTIONS : CKS_RO_USER_FUNCTIONS;
+    }
+    else
+    {
+        info->state =
+            (session->flags & CKF_RW_SESSION) ? CKS_RW_PUBLIC_SESSION : CKS_RO_PUBLIC_SESSION;
+    }
     info->ulDeviceError = 0;
     return CKR_OK;
 }
@@ -91,7 +117,7 @@ CK_RV GetSessionInfo(CK_SESSION_HANDLE sessionHandle, CK_SESSION_INFO_PTR info)
 CK_RV Login(
     CK_SESSION_HANDLE sessionHandle, CK_USER_TYPE userType, CK_CHAR_PTR pin, CK_ULONG pinLength)
 {
-    auto* session = findSession(sessionHandle);
+    const auto* session = findSession(sessionHandle);
     if (!session)
     {
         return CKR_SESSION_HANDLE_INVALID;
@@ -100,32 +126,120 @@ CK_RV Login(
     {
         return CKR_USER_TYPE_INVALID;
     }
-    if (session->loggedIn)
+    if (!pin && pinLength)
     {
-        return CKR_USER_ALREADY_LOGGED_IN;
+        return CKR_ARGUMENTS_BAD;
     }
-    std::string expected = environmentValue("HSM_SIM_PIN", "");
-    if (!expected.empty() && (!pin || std::string(pin, pin + pinLength) != expected))
+    auto& slot = sessionSlot(sessionHandle);
+    if (slot.loggedInUser)
     {
-        return CKR_PIN_INCORRECT;
+        return *slot.loggedInUser == userType ? CKR_USER_ALREADY_LOGGED_IN
+                                              : CKR_USER_ANOTHER_ALREADY_LOGGED_IN;
     }
-    session->loggedIn = true;
+    if (userType == CKU_SO)
+    {
+        if (!(session->flags & CKF_RW_SESSION))
+        {
+            return CKR_SESSION_READ_ONLY;
+        }
+        if (std::any_of(runtime.sessions.begin(), runtime.sessions.end(),
+                [&](const auto& entry)
+                {
+                    return entry.second.slotId == slot.id && !(entry.second.flags & CKF_RW_SESSION);
+                }))
+        {
+            return CKR_SESSION_READ_ONLY_EXISTS;
+        }
+    }
+    const auto& expected = userType == CKU_SO ? slot.soPin : slot.userPin;
+    // The historical flat layout without a PIN remains permissive for existing clients.
+    CK_RV result = slot.legacyLayout && !slot.requiresLogin() && !expected
+        ? CKR_OK
+        : checkPin(expected, pin, pinLength);
+    if (result != CKR_OK)
+    {
+        return result;
+    }
+    slot.loggedInUser = userType;
     return CKR_OK;
 }
 
 CK_RV Logout(CK_SESSION_HANDLE sessionHandle)
 {
-    auto* session = findSession(sessionHandle);
+    if (!findSession(sessionHandle))
+    {
+        return CKR_SESSION_HANDLE_INVALID;
+    }
+    auto& slot = sessionSlot(sessionHandle);
+    if (!slot.loggedInUser)
+    {
+        return CKR_USER_NOT_LOGGED_IN;
+    }
+    slot.loggedInUser.reset();
+    for (auto& [handle, session] : runtime.sessions)
+    {
+        if (session.slotId == slot.id)
+        {
+            session.operation = {};
+            session.searchActive = false;
+            session.matches.clear();
+        }
+    }
+    std::erase_if(runtime.objects,
+        [&](const auto& entry)
+        {
+            return entry.second.slotId == slot.id && entry.second.ownerSession &&
+                isProtectedObject(entry.second);
+        });
+    return CKR_OK;
+}
+
+CK_RV InitPIN(CK_SESSION_HANDLE sessionHandle, CK_CHAR_PTR pin, CK_ULONG pinLength)
+{
+    const auto* session = findSession(sessionHandle);
     if (!session)
     {
         return CKR_SESSION_HANDLE_INVALID;
     }
-    if (!session->loggedIn)
+    if (!(session->flags & CKF_RW_SESSION))
+    {
+        return CKR_SESSION_READ_ONLY;
+    }
+    auto& slot = sessionSlot(sessionHandle);
+    if (slot.loggedInUser != CKU_SO)
     {
         return CKR_USER_NOT_LOGGED_IN;
     }
-    session->loggedIn = false;
-    return CKR_OK;
+    return storePin(slot, CKU_USER, pin, pinLength);
+}
+
+CK_RV SetPIN(CK_SESSION_HANDLE sessionHandle, CK_CHAR_PTR oldPin, CK_ULONG oldLength,
+    CK_CHAR_PTR newPin, CK_ULONG newLength)
+{
+    const auto* session = findSession(sessionHandle);
+    if (!session)
+    {
+        return CKR_SESSION_HANDLE_INVALID;
+    }
+    if (!(session->flags & CKF_RW_SESSION))
+    {
+        return CKR_SESSION_READ_ONLY;
+    }
+    if ((!oldPin && oldLength) || (!newPin && newLength))
+    {
+        return CKR_ARGUMENTS_BAD;
+    }
+    auto& slot = sessionSlot(sessionHandle);
+    const auto userType = slot.loggedInUser.value_or(CKU_USER);
+    const auto& expected = userType == CKU_SO ? slot.soPin : slot.userPin;
+    const auto result = slot.legacyLayout && !slot.requiresLogin() && !expected
+        ? CKR_OK
+        : checkPin(expected, oldPin, oldLength);
+    if (result != CKR_OK)
+    {
+        return result;
+    }
+    return storePin(slot, userType, newPin, newLength);
 }
 
 } // namespace hsm

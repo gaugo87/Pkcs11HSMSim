@@ -1,4 +1,14 @@
-# Unreleased
+# 0.7.0 — Slots et PIN par token
+
+- Découverte des dossiers `slotID_SlotLABEL`, tri numérique et labels de tokens.
+- Sessions, objets, génération, dérivation et wrapping isolés par slot.
+- PIN USER et SO par fichiers ; login/logout partagé entre sessions d'un token.
+- `C_SetPIN` et `C_InitPIN`, persistance atomique et contrôles USER/SO/RW.
+- Mot de passe PKCS#12 optionnel par slot, distinct du PIN utilisateur.
+- Compatibilité du stockage historique sous le slot 1 ; rejet des configurations ambiguës.
+- Nouveau test `slots`, guide Windows et documentation d'architecture actualisée.
+
+# Changements précédents
 
 - Refonte de maintenabilité : unités de compilation séparées pour l'interface
   PKCS#11, les sessions, le stockage, les attributs/politiques et la cryptographie.

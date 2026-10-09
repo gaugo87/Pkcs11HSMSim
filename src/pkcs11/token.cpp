@@ -3,8 +3,11 @@
 #include "core/utilities.hpp"
 #include "crypto/mechanisms.hpp"
 #include "storage/key_store.hpp"
+#include "storage/slots.hpp"
 #include <algorithm>
 #include <cstring>
+#include <iomanip>
+#include <sstream>
 
 namespace hsm
 {
@@ -22,10 +25,13 @@ CK_RV Initialize(CK_VOID_PTR arguments)
     runtime.storageRoot = fs::u8path(environmentValue("HSM_SIM_DATA_DIR", "data"));
     try
     {
+        discoverSlots();
         loadTokenObjects();
     }
     catch (...)
     {
+        runtime.objects.clear();
+        runtime.slots.clear();
         return CKR_DEVICE_ERROR;
     }
     runtime.initialized = true;
@@ -42,6 +48,7 @@ CK_RV Finalize(CK_VOID_PTR reserved)
     {
         return CKR_ARGUMENTS_BAD;
     }
+    runtime.slots.clear();
     runtime.sessions.clear();
     runtime.objects.clear();
     runtime.initialized = false;
@@ -58,7 +65,7 @@ CK_RV GetInfo(CK_INFO_PTR info)
     info->cryptokiVersion = {3, 2};
     writePaddedString(info->manufacturerID, 32, "OpenAI");
     writePaddedString(info->libraryDescription, 32, "HSM Simulator");
-    info->libraryVersion = {0, 6};
+    info->libraryVersion = {0, 7};
     return initializationStatus();
 }
 
@@ -70,22 +77,26 @@ CK_RV GetSlotList(CK_BBOOL, CK_SLOT_ID_PTR slots, CK_ULONG_PTR count)
     }
     if (!slots)
     {
-        *count = 1;
+        *count = static_cast<CK_ULONG>(runtime.slots.size());
         return CKR_OK;
     }
-    if (*count < 1)
+    if (*count < runtime.slots.size())
     {
-        *count = 1;
+        *count = static_cast<CK_ULONG>(runtime.slots.size());
         return CKR_BUFFER_TOO_SMALL;
     }
-    slots[0] = virtualSlotId;
-    *count = 1;
+    size_t index = 0;
+    for (const auto& [id, slot] : runtime.slots)
+    {
+        slots[index++] = id;
+    }
+    *count = static_cast<CK_ULONG>(runtime.slots.size());
     return initializationStatus();
 }
 
 CK_RV GetSlotInfo(CK_SLOT_ID slotId, CK_SLOT_INFO_PTR info)
 {
-    if (slotId != virtualSlotId)
+    if (!findSlot(slotId))
     {
         return CKR_SLOT_ID_INVALID;
     }
@@ -94,7 +105,7 @@ CK_RV GetSlotInfo(CK_SLOT_ID slotId, CK_SLOT_INFO_PTR info)
         return CKR_ARGUMENTS_BAD;
     }
     std::memset(info, 0, sizeof(*info));
-    writePaddedString(info->slotDescription, 64, "File-backed virtual HSM slot");
+    writePaddedString(info->slotDescription, 64, findSlot(slotId)->label.c_str());
     writePaddedString(info->manufacturerID, 32, "OpenAI");
     info->flags = CKF_TOKEN_PRESENT;
     info->hardwareVersion = {1, 0};
@@ -104,7 +115,7 @@ CK_RV GetSlotInfo(CK_SLOT_ID slotId, CK_SLOT_INFO_PTR info)
 
 CK_RV GetTokenInfo(CK_SLOT_ID slotId, CK_TOKEN_INFO_PTR info)
 {
-    if (slotId != virtualSlotId)
+    if (!findSlot(slotId))
     {
         return CKR_SLOT_ID_INVALID;
     }
@@ -113,15 +124,36 @@ CK_RV GetTokenInfo(CK_SLOT_ID slotId, CK_TOKEN_INFO_PTR info)
         return CKR_ARGUMENTS_BAD;
     }
     std::memset(info, 0, sizeof(*info));
-    writePaddedString(info->label, 32, "HSM Simulator");
+    const auto& slot = *findSlot(slotId);
+    writePaddedString(info->label, 32, slot.label.c_str());
     writePaddedString(info->manufacturerID, 32, "OpenAI");
     writePaddedString(info->model, 16, "FILE-HSM");
-    writePaddedString(info->serialNumber, 16, "0000000000000001");
-    info->flags = CKF_RNG | CKF_LOGIN_REQUIRED | CKF_USER_PIN_INITIALIZED;
+    std::ostringstream serial;
+    serial << std::hex << std::setw(16) << std::setfill('0') << slotId;
+    writePaddedString(info->serialNumber, 16, serial.str().c_str());
+    info->flags = CKF_RNG | CKF_TOKEN_INITIALIZED;
+    if (slot.requiresLogin())
+    {
+        info->flags |= CKF_LOGIN_REQUIRED;
+    }
+    if (slot.userPin || !slot.requiresLogin())
+    {
+        info->flags |= CKF_USER_PIN_INITIALIZED;
+    }
     info->ulMaxSessionCount = info->ulMaxRwSessionCount = CK_UNAVAILABLE_INFORMATION;
-    info->ulSessionCount = info->ulRwSessionCount = (CK_ULONG)runtime.sessions.size();
+    for (const auto& [handle, session] : runtime.sessions)
+    {
+        if (session.slotId == slotId)
+        {
+            ++info->ulSessionCount;
+            if (session.flags & CKF_RW_SESSION)
+            {
+                ++info->ulRwSessionCount;
+            }
+        }
+    }
     info->ulMinPinLen = 0;
-    info->ulMaxPinLen = 256;
+    info->ulMaxPinLen = maximumPinLength;
     info->hardwareVersion = {1, 0};
     info->firmwareVersion = {0, 1};
     return initializationStatus();
@@ -129,7 +161,7 @@ CK_RV GetTokenInfo(CK_SLOT_ID slotId, CK_TOKEN_INFO_PTR info)
 
 CK_RV GetMechanismList(CK_SLOT_ID slotId, CK_MECHANISM_TYPE_PTR mechanisms, CK_ULONG_PTR count)
 {
-    if (slotId != virtualSlotId)
+    if (!findSlot(slotId))
     {
         return CKR_SLOT_ID_INVALID;
     }
@@ -154,7 +186,7 @@ CK_RV GetMechanismList(CK_SLOT_ID slotId, CK_MECHANISM_TYPE_PTR mechanisms, CK_U
 
 CK_RV GetMechanismInfo(CK_SLOT_ID slotId, CK_MECHANISM_TYPE mechanism, CK_MECHANISM_INFO_PTR info)
 {
-    if (slotId != virtualSlotId)
+    if (!findSlot(slotId))
     {
         return CKR_SLOT_ID_INVALID;
     }

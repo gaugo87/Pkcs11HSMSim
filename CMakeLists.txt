@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(hsm-simulator VERSION 0.6.0 LANGUAGES CXX)
+project(hsm-simulator VERSION 0.7.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -26,6 +26,7 @@ set(HSM_SOURCES
     src/pkcs11/token.cpp
     src/storage/key_store.cpp
     src/storage/metadata.cpp
+    src/storage/slots.cpp
 )
 
 add_library(hsm-simulator SHARED ${HSM_SOURCES})
@@ -58,6 +59,7 @@ if(BUILD_TESTING)
         )
     endfunction()
 
+    hsm_add_test(slots OpenSSL::Crypto)
     hsm_add_test(policy)
     hsm_add_test(derive)
     hsm_add_test(mldsa OpenSSL::Crypto)

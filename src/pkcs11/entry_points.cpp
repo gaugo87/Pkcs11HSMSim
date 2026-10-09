@@ -73,6 +73,18 @@ CK_EXPORT CK_RV CK_CALL C_GetSessionInfo(CK_SESSION_HANDLE hSession, CK_SESSION_
     return hsm::invoke(true, hsm::GetSessionInfo, hSession, pInfo);
 }
 
+CK_EXPORT CK_RV CK_CALL C_InitPIN(
+    CK_SESSION_HANDLE hSession, CK_UTF8CHAR_PTR pPin, CK_ULONG ulPinLen)
+{
+    return hsm::invoke(true, hsm::InitPIN, hSession, pPin, ulPinLen);
+}
+
+CK_EXPORT CK_RV CK_CALL C_SetPIN(CK_SESSION_HANDLE hSession, CK_UTF8CHAR_PTR pOldPin,
+    CK_ULONG ulOldLen, CK_UTF8CHAR_PTR pNewPin, CK_ULONG ulNewLen)
+{
+    return hsm::invoke(true, hsm::SetPIN, hSession, pOldPin, ulOldLen, pNewPin, ulNewLen);
+}
+
 CK_EXPORT CK_RV CK_CALL C_Login(
     CK_SESSION_HANDLE hSession, CK_USER_TYPE userType, CK_UTF8CHAR_PTR pPin, CK_ULONG ulPinLen)
 {

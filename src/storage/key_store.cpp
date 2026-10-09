@@ -65,13 +65,14 @@ static std::shared_ptr<EVP_PKEY> publicKeyOnly(EVP_PKEY* privateKey)
     return {publicKey, EVP_PKEY_free};
 }
 
-void registerKeyPair(
-    const std::string& label, const fs::path& path, EVP_PKEY* privateKey, X509* certificate)
+void registerKeyPair(CK_SLOT_ID slotId, const std::string& label, const fs::path& path,
+    EVP_PKEY* privateKey, X509* certificate)
 {
     auto sharedPrivateKey = std::shared_ptr<EVP_PKEY>(privateKey, EVP_PKEY_free);
     auto id = objectIdForFilename(path.filename().string());
     Object privateObject;
     privateObject.handle = runtime.nextObjectHandle++;
+    privateObject.slotId = slotId;
     privateObject.objectClass = CKO_PRIVATE_KEY;
     privateObject.keyType = keyType(privateKey);
     privateObject.label = label;
@@ -85,6 +86,7 @@ void registerKeyPair(
     {
         Object publicObject;
         publicObject.handle = runtime.nextObjectHandle++;
+        publicObject.slotId = slotId;
         publicObject.objectClass = CKO_PUBLIC_KEY;
         publicObject.keyType = privateObject.keyType;
         publicObject.label = label;
@@ -100,6 +102,7 @@ void registerKeyPair(
         int derLength = i2d_X509(certificate, &der);
         Object certificateObject;
         certificateObject.handle = runtime.nextObjectHandle++;
+        certificateObject.slotId = slotId;
         certificateObject.objectClass = CKO_CERTIFICATE;
         certificateObject.label = label;
         certificateObject.id = id;
@@ -114,7 +117,7 @@ void registerKeyPair(
     }
 }
 
-static void loadAsymmetricFiles(const fs::path& directory, const std::string& password)
+static void loadAsymmetricFiles(const Slot& slot, const fs::path& directory)
 {
     for (auto& entry : fs::directory_iterator(directory))
     {
@@ -142,16 +145,18 @@ static void loadAsymmetricFiles(const fs::path& directory, const std::string& pa
         }
         EVP_PKEY* privateKey = nullptr;
         X509* certificate = nullptr;
-        if (PKCS12_parse(container, password.c_str(), &privateKey, &certificate, nullptr) == 1 &&
+        if (PKCS12_parse(container, slot.p12Password.c_str(), &privateKey, &certificate, nullptr) ==
+                1 &&
             privateKey)
         {
-            registerKeyPair(entry.path().stem().string(), entry.path(), privateKey, certificate);
+            registerKeyPair(
+                slot.id, entry.path().stem().string(), entry.path(), privateKey, certificate);
         }
         PKCS12_free(container);
     }
 }
 
-static void loadSymmetricFiles(const fs::path& directory)
+static void loadSymmetricFiles(CK_SLOT_ID slotId, const fs::path& directory)
 {
     for (auto& entry : fs::directory_iterator(directory))
     {
@@ -168,6 +173,7 @@ static void loadSymmetricFiles(const fs::path& directory)
         }
         Object object;
         object.handle = runtime.nextObjectHandle++;
+        object.slotId = slotId;
         object.objectClass = CKO_SECRET_KEY;
         object.keyType = CKK_AES;
         object.label = entry.path().stem().string();
@@ -197,11 +203,13 @@ void loadTokenObjects()
 {
     runtime.objects.clear();
     runtime.nextObjectHandle = 1;
-    fs::create_directories(runtime.storageRoot / "asymmetric");
-    fs::create_directories(runtime.storageRoot / "symmetric");
-    const auto password = environmentValue("HSM_SIM_P12_PASSWORD", "");
-    loadAsymmetricFiles(runtime.storageRoot / "asymmetric", password);
-    loadSymmetricFiles(runtime.storageRoot / "symmetric");
+    for (const auto& [id, slot] : runtime.slots)
+    {
+        fs::create_directories(slot.directory / "asymmetric");
+        fs::create_directories(slot.directory / "symmetric");
+        loadAsymmetricFiles(slot, slot.directory / "asymmetric");
+        loadSymmetricFiles(id, slot.directory / "symmetric");
+    }
     loadObjectMetadata();
 }
 
@@ -220,13 +228,13 @@ CK_RV saveSecretKey(Object& object)
     return output ? CKR_OK : CKR_DEVICE_ERROR;
 }
 
-CK_RV saveKeyPair(const fs::path& path, EVP_PKEY* key, const std::string& label)
+CK_RV saveKeyPair(const Slot& slot, const fs::path& path, EVP_PKEY* key, const std::string& label)
 {
     if (fs::exists(path))
     {
         return CKR_TEMPLATE_INCONSISTENT;
     }
-    std::string password = environmentValue("HSM_SIM_P12_PASSWORD", "");
+    const auto& password = slot.p12Password;
     OpenSslPtr<PKCS12, PKCS12_free> container(
         PKCS12_create(password.c_str(), label.c_str(), key, nullptr, nullptr, 0, 0, 0, 0, 0),
         PKCS12_free);

@@ -63,13 +63,18 @@ static bool configureRsaPss(EVP_PKEY_CTX* context, const CK_RSA_PKCS_PSS_PARAMS&
         EVP_PKEY_CTX_set_rsa_pss_saltlen(context, (int)parameters.sLen) > 0;
 }
 
-static CK_RV executeSignature(Operation& operation, const unsigned char* data, size_t dataLength,
-    unsigned char* signature, size_t* signatureLength, bool verify)
+static CK_RV executeSignature(CK_SESSION_HANDLE sessionHandle, Operation& operation,
+    const unsigned char* data, size_t dataLength, unsigned char* signature, size_t* signatureLength,
+    bool verify)
 {
-    Object* object = findObject(operation.keyHandle);
+    Object* object = findObject(sessionHandle, operation.keyHandle);
     if (!object || !object->asymmetricKey)
     {
         return CKR_KEY_HANDLE_INVALID;
+    }
+    if (auto access = objectAccessStatus(sessionHandle, *object); access != CKR_OK)
+    {
+        return access;
     }
     if (!policyValue(*object, verify ? CKA_VERIFY : CKA_SIGN))
     {
@@ -249,10 +254,14 @@ static CK_RV initializeSignature(CK_SESSION_HANDLE sessionHandle, CK_MECHANISM_P
     {
         return CKR_OPERATION_ACTIVE;
     }
-    auto* object = findObject(keyHandle);
+    auto* object = findObject(sessionHandle, keyHandle);
     if (!object || !object->asymmetricKey)
     {
         return CKR_KEY_HANDLE_INVALID;
+    }
+    if (auto access = objectAccessStatus(sessionHandle, *object); access != CKR_OK)
+    {
+        return access;
     }
     if (std::find(supportedMechanisms.begin(), supportedMechanisms.end(), mechanism->mechanism) ==
         supportedMechanisms.end())
@@ -331,7 +340,8 @@ CK_RV Sign(CK_SESSION_HANDLE sessionHandle, CK_BYTE_PTR data, CK_ULONG dataLengt
         return CKR_ARGUMENTS_BAD;
     }
     size_t length = *signatureLength;
-    auto result = executeSignature(session->operation, data, dataLength, signature, &length, false);
+    auto result = executeSignature(
+        sessionHandle, session->operation, data, dataLength, signature, &length, false);
     *signatureLength = (CK_ULONG)length;
     // A size query or short buffer leaves the operation available for a retry.
     if (signature && result != CKR_BUFFER_TOO_SMALL)
@@ -363,8 +373,9 @@ CK_RV SignFinal(
         return CKR_ARGUMENTS_BAD;
     }
     size_t length = *signatureLength;
-    auto result = executeSignature(session->operation, session->operation.bufferedData.data(),
-        session->operation.bufferedData.size(), signature, &length, false);
+    auto result =
+        executeSignature(sessionHandle, session->operation, session->operation.bufferedData.data(),
+            session->operation.bufferedData.size(), signature, &length, false);
     *signatureLength = (CK_ULONG)length;
     // A size query or short buffer leaves the operation available for a retry.
     if (signature && result != CKR_BUFFER_TOO_SMALL)
@@ -397,7 +408,8 @@ CK_RV Verify(CK_SESSION_HANDLE sessionHandle, CK_BYTE_PTR data, CK_ULONG dataLen
         return CKR_ARGUMENTS_BAD;
     }
     size_t length = signatureLength;
-    auto result = executeSignature(session->operation, data, dataLength, signature, &length, true);
+    auto result = executeSignature(
+        sessionHandle, session->operation, data, dataLength, signature, &length, true);
     session->operation.active = false;
     return result;
 }
@@ -423,8 +435,9 @@ CK_RV VerifyFinal(CK_SESSION_HANDLE sessionHandle, CK_BYTE_PTR signature, CK_ULO
         return CKR_ARGUMENTS_BAD;
     }
     size_t length = signatureLength;
-    auto result = executeSignature(session->operation, session->operation.bufferedData.data(),
-        session->operation.bufferedData.size(), signature, &length, true);
+    auto result =
+        executeSignature(sessionHandle, session->operation, session->operation.bufferedData.data(),
+            session->operation.bufferedData.size(), signature, &length, true);
     session->operation.active = false;
     return result;
 }

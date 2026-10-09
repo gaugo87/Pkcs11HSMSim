@@ -15,9 +15,9 @@ un autre. Le découpage conserve les mécanismes et le stockage existants.
 | `src/pkcs11/unsupported.cpp` | Exports typés des opérations non prises en charge |
 | `src/pkcs11/interfaces.cpp` | Tables 2.40/3.0/3.2 et découverte des interfaces |
 | `src/pkcs11/boundary.hpp` | Verrouillage, contrôle d'initialisation et conversion des exceptions |
-| `src/pkcs11/token.*` | Initialisation, finalisation, slot virtuel et informations du token |
-| `src/pkcs11/sessions.*` | Sessions, login/logout simplifiés et durée de vie des objets de session |
-| `src/core/runtime.*` | Types Object/Session/Operation et état du token en mémoire |
+| `src/pkcs11/token.*` | Initialisation, finalisation, découverte des slots et informations des tokens |
+| `src/pkcs11/sessions.*` | Sessions par slot, login USER/SO partagé, API PIN et durée de vie des objets de session |
+| `src/core/runtime.*` | Types Slot/Object/Session/Operation, registre et contrôle d’accès par slot |
 | `src/core/utilities.*` | Environnement, encodage hexadécimal et chaînes à largeur fixe |
 | `src/core/openssl.hpp` | Propriété des allocations OpenSSL via des pointeurs RAII |
 | `src/objects/template.*` | Lecture des templates d'attributs fournis par le client |
@@ -25,6 +25,7 @@ un autre. Le découpage conserve les mécanismes et le stockage existants.
 | `src/objects/attributes.*` | Lecture des attributs, conversion RSA/EC et modification persistante |
 | `src/objects/objects.*` | Recherche et suppression des objets |
 | `src/storage/key_store.*` | Chargement/sauvegarde des fichiers de clés et enregistrement des objets |
+| `src/storage/slots.*` | Découverte des répertoires, lecture des mots de passe et remplacement atomique des PIN |
 | `src/storage/metadata.*` | Lecture HSM1/HSM2 et écriture atomique des métadonnées |
 | `src/crypto/mechanisms.*` | Catalogue PKCS#11 et correspondances avec les algorithmes OpenSSL |
 | `src/crypto/key_generation.*` | Génération AES et de paires RSA, EC, ML-DSA, SLH-DSA ; aléatoire |
@@ -48,9 +49,25 @@ avant de rendre les handles au client.
 
 ## État, concurrence et propriété
 
-Il existe un `RuntimeState` par module chargé : un slot virtuel d'identifiant 1,
-un répertoire de stockage, une table d'objets et une table de sessions.
-Les handles sont des identifiants, jamais des adresses.
+Il existe un `RuntimeState` par module chargé : un registre ordonné de slots,
+une racine de stockage, une table d'objets et une table de sessions. Un `Slot`
+porte son répertoire, ses PIN, son mot de passe PKCS#12 et le rôle connecté.
+Chaque `Object` et `Session` porte un `slotId`. Les handles sont uniques dans
+le module et représentent des identifiants, jamais des adresses.
+
+`findObject(sessionHandle, objectHandle)` impose l'appartenance au slot de la
+session. Ne jamais utiliser directement `runtime.objects` pour résoudre un
+handle fourni par le client. Après résolution, `objectAccessStatus` protège la
+lecture/utilisation des objets ; `requireUserLogin` protège les mutations et
+l'accès aux clés secrètes. Les boucles de recherche filtrent aussi le slot.
+Le stockage des clés prend le répertoire et le mot de passe du slot explicite.
+
+`C_Login` et `C_Logout` affectent toutes les sessions du slot. La fermeture de
+sa dernière session réinitialise son login. `C_CloseAllSessions` ne touche que
+le slot demandé. Logout annule ses opérations/recherches en cours et détruit
+ses objets de session protégés. Les autres slots restent intacts.
+La découverte n'est publiée qu'après validation ; un échec d'initialisation
+vide les registres pour permettre une nouvelle tentative.
 
 Toute opération publique avec état traverse `invoke`. Ce point prend un mutex,
 vérifie l'initialisation si nécessaire, puis convertit les exceptions en codes
@@ -92,7 +109,8 @@ il faut toujours un seul processus par répertoire de token.
 - Le remplacement atomique des métadonnées ne constitue pas une transaction
   complète clé + métadonnées. Les limitations de stockage restent celles du README.
 - Les permissions sont évaluées dans `policyValue`. Les valeurs absentes gardent
-  les valeurs historiques. La refonte n'ajoute aucune capacité PKCS#11.
+  les valeurs historiques. Les contrôles de login et d’appartenance au slot
+  sont distincts des permissions d’usage des clés.
 
 ## Ajouter une fonctionnalité
 
@@ -139,3 +157,18 @@ Avant cette refonte, les huit suites Windows x86/OpenSSL 3.5.4 ont été exécut
 avec succès sur la machine du mainteneur, ainsi que le chargement du simulateur
 par DxSP11KeyGen, la génération RSA/CSR et la vérification de cette CSR par OpenSSL.
 Ces résultats concernent la version précédente, pas le nouveau découpage.
+
+
+## Validation des slots (0.7.0)
+
+`tests/slots.cpp` utilise les seuls points d'entrée publics : découverte,
+labels et compteurs, isolation des handles, login partagé, USER/SO, changements
+et réinitialisations de PIN, échec d'écriture sans changement du PIN actif,
+persistance et reprise après configuration invalide. Il exerce également
+RSA/AES, dérivation, wrapping/unwrapping et relit les PKCS#12 directement avec
+EVP pour vérifier les mots de passe propres à chaque slot.
+
+Huit suites ont été exécutées ici sous Linux/OpenSSL 3.0.13, avec le même
+abaissement du prérequis dans une copie temporaire : slots et les sept suites
+historiques hors ML-DSA. La cible ML-DSA compile ; son exécution et la validation
+Windows x86 restent à effectuer avec OpenSSL 3.5+. Le dépôt exige toujours 3.5.

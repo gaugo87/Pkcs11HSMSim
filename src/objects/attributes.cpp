@@ -244,10 +244,14 @@ CK_RV GetAttributeValue(CK_SESSION_HANDLE sessionHandle, CK_OBJECT_HANDLE object
     {
         return CKR_SESSION_HANDLE_INVALID;
     }
-    auto* object = findObject(objectHandle);
+    auto* object = findObject(sessionHandle, objectHandle);
     if (!object)
     {
         return CKR_OBJECT_HANDLE_INVALID;
+    }
+    if (auto access = objectAccessStatus(sessionHandle, *object); access != CKR_OK)
+    {
+        return access;
     }
     return readAttributes(object, attributes, attributeCount);
 }
@@ -259,10 +263,14 @@ CK_RV SetAttributeValue(CK_SESSION_HANDLE sessionHandle, CK_OBJECT_HANDLE handle
     {
         return CKR_SESSION_HANDLE_INVALID;
     }
-    auto* object = findObject(handle);
+    auto* object = findObject(sessionHandle, handle);
     if (!object)
     {
         return CKR_OBJECT_HANDLE_INVALID;
+    }
+    if (auto access = requireUserLogin(sessionHandle); access != CKR_OK)
+    {
+        return access;
     }
     if (!policyValue(*object, CKA_MODIFIABLE))
     {

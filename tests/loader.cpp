@@ -98,7 +98,7 @@ int main(int argc, char** argv)
         CK_SESSION_HANDLE session;
         CHECK(f->C_OpenSession(
                   1, CKF_SERIAL_SESSION | CKF_RW_SESSION, nullptr, nullptr, &session) == CKR_OK);
-        CHECK(f->C_InitPIN(session, nullptr, 0) == CKR_FUNCTION_NOT_SUPPORTED);
+        CHECK(f->C_InitPIN(session, nullptr, 0) == CKR_USER_NOT_LOGGED_IN);
         CHECK(f32->C_AsyncGetID(session, nullptr, nullptr) == CKR_FUNCTION_NOT_SUPPORTED);
         CHECK(f32->C_MessageSignInit(session, nullptr, 0) == CKR_FUNCTION_NOT_SUPPORTED);
         CHECK(f->C_GetSessionInfo(session, nullptr) == CKR_ARGUMENTS_BAD);

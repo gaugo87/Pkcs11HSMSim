@@ -15,10 +15,14 @@ CK_RV DestroyObject(CK_SESSION_HANDLE sessionHandle, CK_OBJECT_HANDLE objectHand
     {
         return CKR_SESSION_HANDLE_INVALID;
     }
-    auto* object = findObject(objectHandle);
+    auto* object = findObject(sessionHandle, objectHandle);
     if (!object)
     {
         return CKR_OBJECT_HANDLE_INVALID;
+    }
+    if (auto access = requireUserLogin(sessionHandle); access != CKR_OK)
+    {
+        return access;
     }
     if (!policyValue(*object, CKA_DESTROYABLE))
     {
@@ -89,6 +93,10 @@ CK_RV FindObjectsInit(
     session->matches.clear();
     for (auto& [id, object] : runtime.objects)
     {
+        if (object.slotId != session->slotId || objectAccessStatus(sessionHandle, object) != CKR_OK)
+        {
+            continue;
+        }
         bool matches = true;
         for (CK_ULONG i = 0; i < attributeCount && matches; i++)
         {
@@ -142,7 +150,12 @@ CK_RV FindObjects(CK_SESSION_HANDLE sessionHandle, CK_OBJECT_HANDLE_PTR objects,
     *count = 0;
     while (*count < capacity && session->searchOffset < session->matches.size())
     {
-        objects[(*count)++] = session->matches[session->searchOffset++];
+        const auto handle = session->matches[session->searchOffset++];
+        const auto* object = findObject(sessionHandle, handle);
+        if (object && objectAccessStatus(sessionHandle, *object) == CKR_OK)
+        {
+            objects[(*count)++] = handle;
+        }
     }
     return CKR_OK;
 }
