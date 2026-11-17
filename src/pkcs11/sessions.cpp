@@ -6,6 +6,28 @@
 namespace hsm
 {
 
+namespace
+{
+
+// C++17 equivalent of erase_if for the session and object registries.
+template <typename Map, typename Predicate>
+void eraseMatchingEntries(Map& entries, Predicate predicate)
+{
+    for (auto entry = entries.begin(); entry != entries.end();)
+    {
+        if (predicate(*entry))
+        {
+            entry = entries.erase(entry);
+        }
+        else
+        {
+            ++entry;
+        }
+    }
+}
+
+} // namespace
+
 CK_RV OpenSession(
     CK_SLOT_ID slotId, CK_FLAGS flags, CK_VOID_PTR, CK_NOTIFY, CK_SESSION_HANDLE_PTR sessionHandle)
 {
@@ -45,7 +67,7 @@ CK_RV CloseSession(CK_SESSION_HANDLE sessionHandle)
     }
     const auto slotId = session->slotId;
     runtime.sessions.erase(sessionHandle);
-    std::erase_if(runtime.objects,
+    eraseMatchingEntries(runtime.objects,
         [sessionHandle](const auto& entry)
         {
             return entry.second.ownerSession == sessionHandle;
@@ -68,12 +90,12 @@ CK_RV CloseAllSessions(CK_SLOT_ID slotId)
     {
         return CKR_SLOT_ID_INVALID;
     }
-    std::erase_if(runtime.sessions,
+    eraseMatchingEntries(runtime.sessions,
         [slotId](const auto& entry)
         {
             return entry.second.slotId == slotId;
         });
-    std::erase_if(runtime.objects,
+    eraseMatchingEntries(runtime.objects,
         [slotId](const auto& entry)
         {
             return entry.second.slotId == slotId && entry.second.ownerSession != 0;
@@ -185,7 +207,7 @@ CK_RV Logout(CK_SESSION_HANDLE sessionHandle)
             session.matches.clear();
         }
     }
-    std::erase_if(runtime.objects,
+    eraseMatchingEntries(runtime.objects,
         [&](const auto& entry)
         {
             return entry.second.slotId == slot.id && entry.second.ownerSession &&

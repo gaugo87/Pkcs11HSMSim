@@ -1,3 +1,13 @@
+# Branche cpp17 — Compatibilité C++17
+
+- Compilation de la bibliothèque et des tests en C++17, sans extensions du compilateur.
+- Remplacement de `std::erase_if`, `starts_with` et `ends_with` par des équivalents C++17.
+- Configuration clang-format et instructions de compilation adaptées à la branche.
+- Dépendance OpenSSL 3.5+ conservée.
+- Validation : compilation Release en C++17 strict (GCC 14.2, `-pedantic-errors`)
+  et neuf suites CTest réussies avec OpenSSL 3.5.7, dont ML-DSA-44/65/87.
+  Compilation Windows x86/VS2022 à valider sur la machine cible.
+
 # 0.7.0 — Slots et PIN par token
 
 - Découverte des dossiers `slotID_SlotLABEL`, tri numérique et labels de tokens.

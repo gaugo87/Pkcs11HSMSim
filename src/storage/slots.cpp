@@ -34,14 +34,14 @@ static std::optional<std::string> readPassword(const fs::path& path)
         throw std::runtime_error("Invalid slot password file");
     }
     std::string value(buffer, static_cast<size_t>(input.gcount()));
-    if (value.starts_with("\xEF\xBB\xBF"))
+    if (value.compare(0, 3, "\xEF\xBB\xBF") == 0)
     {
         value.erase(0, 3);
     }
-    if (value.ends_with('\n'))
+    if (!value.empty() && value.back() == '\n')
     {
         value.pop_back();
-        if (value.ends_with('\r'))
+        if (!value.empty() && value.back() == '\r')
         {
             value.pop_back();
         }

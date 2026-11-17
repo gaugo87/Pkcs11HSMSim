@@ -1,12 +1,38 @@
 # HSM Simulator — 0.7.0
 
-Simulateur C++ pour Windows x86 et x64 / Visual Studio 2022, utilisant OpenSSL 3.5+.
+Simulateur C++17 pour Windows x86 et x64 / Visual Studio 2022, utilisant OpenSSL 3.5+.
 L'interface utilise désormais les en-têtes officiels OASIS PKCS#11 3.2 fournis,
 conservés sans modification dans include/oasis.
 
 L'implémentation reste partielle : l'intégration des tables 3.2 est terminée,
 mais la compatibilité de remplacement avec un client donné doit encore être
 testée, notamment pour le PQC et sous Windows.
+
+## Branche C++17
+
+La branche `cpp17` configure la bibliothèque et tous les tests en C++17,
+sans extensions du compilateur. Elle conserve les fonctionnalités de `main`,
+notamment les slots, les PIN et les mécanismes cryptographiques.
+OpenSSL 3.5+ reste requis pour les algorithmes post-quantiques.
+
+Pour récupérer cette branche et réutiliser un répertoire x86 déjà configuré :
+
+```bat
+git fetch origin
+git switch --track origin/cpp17
+cmake -S . -B out/build-x86
+cmake --build out/build-x86 --config Release
+ctest --test-dir out/build-x86 -C Release --output-on-failure
+```
+
+La reconfiguration CMake applique le standard C++17 au projet Visual Studio.
+Pour un nouveau répertoire de build, utiliser les commandes complètes de la
+section « Compilation Windows 32 bits (x86) ».
+
+Validation de cette branche : les neuf suites CTest passent sous Linux,
+GCC 14.2 et OpenSSL 3.5.7, avec `-std=c++17 -pedantic-errors`. Cela inclut
+ML-DSA-44/65/87, les slots/PIN, le chargement dynamique, RSA/ECDSA, la dérivation
+et le wrapping. La compilation native Windows x86/VS2022 reste à relancer.
 
 ## Organisation du code
 
@@ -167,7 +193,8 @@ la troncature, le wrapping/unwrapping, les erreurs et la durée de vie des clés
 - ECDSA brut et SHA-256/384/512 ; conversion DER OpenSSL vers r || s.
 - Génération RSA, EC (OID DER dans CKA_EC_PARAMS) et AES.
 - AES Key Wrap et Wrap Pad, IV par défaut uniquement ; clés privées en PKCS#8.
-- Chemins EVP ML-DSA et SLH-DSA présents mais non testés avec OpenSSL 3.5.
+- ML-DSA-44/65/87 testé avec OpenSSL 3.5.7 sur la branche C++17 ; chemins EVP
+  SLH-DSA présents, sans suite dédiée couvrant tous ses paramètres.
 
 CKM_RSA_PKCS signe les octets fournis sans hachage : le client fournit son
 DigestInfo si nécessaire. CKM_ECDSA et CKM_RSA_PKCS_PSS reçoivent une empreinte.
@@ -239,7 +266,7 @@ Ces contrôles ne protègent pas les fichiers sur disque.
 Validation : 152 vérifications de politique, 62 de dérivation, 464 de
 régression/persistance et le smoke test passent sous Linux/OpenSSL 3.0.13.
 Le test `policy` est intégré à CTest et au script Windows ; Windows/OpenSSL
-3.5 reste à valider.
+3.5 reste à valider pour cette branche.
 
 ## Tests effectués
 
@@ -317,8 +344,9 @@ crée des tokens uniques dans le répertoire de build, sans utiliser le token
 configuré par l'utilisateur. Les trois en-têtes livrés ont été comparés
 octet par octet aux fichiers fournis.
 
-Windows/VS2022 et OpenSSL 3.5/PQC n'ont pas été exécutés ici. Les assertions
-de layout Windows sont présentes, mais ne constituent pas un résultat de
+La branche C++17 a depuis passé les neuf tests sous Linux/OpenSSL 3.5.7,
+y compris ML-DSA. Windows/VS2022 n'a pas été exécuté ici. Les assertions de
+layout Windows sont présentes, mais ne constituent pas un résultat de
 compilation Windows.
 
 ## Travail restant

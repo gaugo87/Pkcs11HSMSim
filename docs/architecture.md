@@ -5,6 +5,21 @@ l'espace de noms `hsm`. Chaque `.cpp` est compilé séparément. Les `.hpp` déc
 les contrats entre modules ; aucun fichier d'implémentation n'est inclus dans
 un autre. Le découpage conserve les mécanismes et le stockage existants.
 
+La branche `cpp17` utilise C++17 pour la bibliothèque et les tests, avec
+`CMAKE_CXX_STANDARD_REQUIRED=ON` et `CMAKE_CXX_EXTENSIONS=OFF`. Les suppressions
+conditionnelles dans les registres utilisent le helper local
+`eraseMatchingEntries` de `sessions.cpp`, qui avance avec l'itérateur renvoyé
+par `erase`. La lecture des fichiers de PIN utilise `compare` et `back`
+(après contrôle de chaîne non vide) pour reconnaître le BOM et les fins de ligne.
+Ces choix évitent les API de bibliothèque standard ajoutées en C++20.
+
+Validation de la branche C++17 : compilation Release de 28 unités de
+compilation avec GCC 14.2, `-std=c++17 -pedantic-errors` et OpenSSL 3.5.7.
+Les neuf suites CTest passent, y compris ML-DSA-44/65/87, et le contrôle de
+formatage réussit. Ce résultat concerne Linux ; les résultats historiques
+Windows ci-dessous ne remplacent pas une recompilation Windows de cette branche.
+
+
 ## Où lire et où modifier
 
 | Répertoire / fichier | Responsabilité |
