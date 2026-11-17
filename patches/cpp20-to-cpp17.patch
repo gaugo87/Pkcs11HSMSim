@@ -1,0 +1,235 @@
+diff --git a/.clang-format b/.clang-format
+index 29957c1f5b3aa27bdd3055ff986415070e04b74e..6dd100e24540393886a1d1c10d2b46d74e6ef38e 100644
+--- a/.clang-format
++++ b/.clang-format
+@@ -1,6 +1,6 @@
+ BasedOnStyle: LLVM
+ Language: Cpp
+-Standard: c++20
++Standard: c++17
+ IndentWidth: 4
+ ContinuationIndentWidth: 4
+ TabWidth: 4
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index db7d07cdcf20630edd74d12a4320a2b37453b0e3..cce761d044b80f1dba6bacef905e2ef85cfa952a 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,3 +1,13 @@
++# Branche cpp17 — Compatibilité C++17
++
++- Compilation de la bibliothèque et des tests en C++17, sans extensions du compilateur.
++- Remplacement de `std::erase_if`, `starts_with` et `ends_with` par des équivalents C++17.
++- Configuration clang-format et instructions de compilation adaptées à la branche.
++- Dépendance OpenSSL 3.5+ conservée.
++- Validation : compilation Release en C++17 strict (GCC 14.2, `-pedantic-errors`)
++  et neuf suites CTest réussies avec OpenSSL 3.5.7, dont ML-DSA-44/65/87.
++  Compilation Windows x86/VS2022 à valider sur la machine cible.
++
+ # 0.7.0 — Slots et PIN par token
+ 
+ - Découverte des dossiers `slotID_SlotLABEL`, tri numérique et labels de tokens.
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index d8dbd82963c98353255d2ce0ff0671f1f259dc08..26d6fb30fcea92119d0a04eae801938558896d2c 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,8 +1,9 @@
+ cmake_minimum_required(VERSION 3.24)
+ project(hsm-simulator VERSION 0.7.0 LANGUAGES CXX)
+ 
+-set(CMAKE_CXX_STANDARD 20)
++set(CMAKE_CXX_STANDARD 17)
+ set(CMAKE_CXX_STANDARD_REQUIRED ON)
++set(CMAKE_CXX_EXTENSIONS OFF)
+ set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS OFF)
+ 
+ find_package(OpenSSL 3.5 REQUIRED COMPONENTS Crypto)
+diff --git a/README.md b/README.md
+index 75439ac5d96a1e1212db21ec3e20f2f7526451b7..fb9b2f0801a925d5fbd074d6dd924b1e853799e5 100644
+--- a/README.md
++++ b/README.md
+@@ -1,6 +1,6 @@
+ # HSM Simulator — 0.7.0
+ 
+-Simulateur C++ pour Windows x86 et x64 / Visual Studio 2022, utilisant OpenSSL 3.5+.
++Simulateur C++17 pour Windows x86 et x64 / Visual Studio 2022, utilisant OpenSSL 3.5+.
+ L'interface utilise désormais les en-têtes officiels OASIS PKCS#11 3.2 fournis,
+ conservés sans modification dans include/oasis.
+ 
+@@ -8,6 +8,32 @@ L'implémentation reste partielle : l'intégration des tables 3.2 est terminée,
+ mais la compatibilité de remplacement avec un client donné doit encore être
+ testée, notamment pour le PQC et sous Windows.
+ 
++## Branche C++17
++
++La branche `cpp17` configure la bibliothèque et tous les tests en C++17,
++sans extensions du compilateur. Elle conserve les fonctionnalités de `main`,
++notamment les slots, les PIN et les mécanismes cryptographiques.
++OpenSSL 3.5+ reste requis pour les algorithmes post-quantiques.
++
++Pour récupérer cette branche et réutiliser un répertoire x86 déjà configuré :
++
++```bat
++git fetch origin
++git switch --track origin/cpp17
++cmake -S . -B out/build-x86
++cmake --build out/build-x86 --config Release
++ctest --test-dir out/build-x86 -C Release --output-on-failure
++```
++
++La reconfiguration CMake applique le standard C++17 au projet Visual Studio.
++Pour un nouveau répertoire de build, utiliser les commandes complètes de la
++section « Compilation Windows 32 bits (x86) ».
++
++Validation de cette branche : les neuf suites CTest passent sous Linux,
++GCC 14.2 et OpenSSL 3.5.7, avec `-std=c++17 -pedantic-errors`. Cela inclut
++ML-DSA-44/65/87, les slots/PIN, le chargement dynamique, RSA/ECDSA, la dérivation
++et le wrapping. La compilation native Windows x86/VS2022 reste à relancer.
++
+ ## Organisation du code
+ 
+ Le code est réparti en modules compilés séparément : `src/pkcs11` pour l'interface,
+@@ -167,7 +193,8 @@ la troncature, le wrapping/unwrapping, les erreurs et la durée de vie des clés
+ - ECDSA brut et SHA-256/384/512 ; conversion DER OpenSSL vers r || s.
+ - Génération RSA, EC (OID DER dans CKA_EC_PARAMS) et AES.
+ - AES Key Wrap et Wrap Pad, IV par défaut uniquement ; clés privées en PKCS#8.
+-- Chemins EVP ML-DSA et SLH-DSA présents mais non testés avec OpenSSL 3.5.
++- ML-DSA-44/65/87 testé avec OpenSSL 3.5.7 sur la branche C++17 ; chemins EVP
++  SLH-DSA présents, sans suite dédiée couvrant tous ses paramètres.
+ 
+ CKM_RSA_PKCS signe les octets fournis sans hachage : le client fournit son
+ DigestInfo si nécessaire. CKM_ECDSA et CKM_RSA_PKCS_PSS reçoivent une empreinte.
+@@ -239,7 +266,7 @@ Ces contrôles ne protègent pas les fichiers sur disque.
+ Validation : 152 vérifications de politique, 62 de dérivation, 464 de
+ régression/persistance et le smoke test passent sous Linux/OpenSSL 3.0.13.
+ Le test `policy` est intégré à CTest et au script Windows ; Windows/OpenSSL
+-3.5 reste à valider.
++3.5 reste à valider pour cette branche.
+ 
+ ## Tests effectués
+ 
+@@ -317,8 +344,9 @@ crée des tokens uniques dans le répertoire de build, sans utiliser le token
+ configuré par l'utilisateur. Les trois en-têtes livrés ont été comparés
+ octet par octet aux fichiers fournis.
+ 
+-Windows/VS2022 et OpenSSL 3.5/PQC n'ont pas été exécutés ici. Les assertions
+-de layout Windows sont présentes, mais ne constituent pas un résultat de
++La branche C++17 a depuis passé les neuf tests sous Linux/OpenSSL 3.5.7,
++y compris ML-DSA. Windows/VS2022 n'a pas été exécuté ici. Les assertions de
++layout Windows sont présentes, mais ne constituent pas un résultat de
+ compilation Windows.
+ 
+ ## Travail restant
+diff --git a/docs/architecture.md b/docs/architecture.md
+index b9fbaf2ec7052ebca07f7a415017ed643a53bf48..bd945a222dffcb24dfaaaa12b2fa1b684fc9a571 100644
+--- a/docs/architecture.md
++++ b/docs/architecture.md
+@@ -5,6 +5,21 @@ l'espace de noms `hsm`. Chaque `.cpp` est compilé séparément. Les `.hpp` déc
+ les contrats entre modules ; aucun fichier d'implémentation n'est inclus dans
+ un autre. Le découpage conserve les mécanismes et le stockage existants.
+ 
++La branche `cpp17` utilise C++17 pour la bibliothèque et les tests, avec
++`CMAKE_CXX_STANDARD_REQUIRED=ON` et `CMAKE_CXX_EXTENSIONS=OFF`. Les suppressions
++conditionnelles dans les registres utilisent le helper local
++`eraseMatchingEntries` de `sessions.cpp`, qui avance avec l'itérateur renvoyé
++par `erase`. La lecture des fichiers de PIN utilise `compare` et `back`
++(après contrôle de chaîne non vide) pour reconnaître le BOM et les fins de ligne.
++Ces choix évitent les API de bibliothèque standard ajoutées en C++20.
++
++Validation de la branche C++17 : compilation Release de 28 unités de
++compilation avec GCC 14.2, `-std=c++17 -pedantic-errors` et OpenSSL 3.5.7.
++Les neuf suites CTest passent, y compris ML-DSA-44/65/87, et le contrôle de
++formatage réussit. Ce résultat concerne Linux ; les résultats historiques
++Windows ci-dessous ne remplacent pas une recompilation Windows de cette branche.
++
++
+ ## Où lire et où modifier
+ 
+ | Répertoire / fichier | Responsabilité |
+diff --git a/src/pkcs11/sessions.cpp b/src/pkcs11/sessions.cpp
+index dfd85b6d08db505a1f60bda4b64e4161d0fc0963..7e66da041060a0806da436aba96c6c6c393639ae 100644
+--- a/src/pkcs11/sessions.cpp
++++ b/src/pkcs11/sessions.cpp
+@@ -6,6 +6,28 @@
+ namespace hsm
+ {
+ 
++namespace
++{
++
++// C++17 equivalent of erase_if for the session and object registries.
++template <typename Map, typename Predicate>
++void eraseMatchingEntries(Map& entries, Predicate predicate)
++{
++    for (auto entry = entries.begin(); entry != entries.end();)
++    {
++        if (predicate(*entry))
++        {
++            entry = entries.erase(entry);
++        }
++        else
++        {
++            ++entry;
++        }
++    }
++}
++
++} // namespace
++
+ CK_RV OpenSession(
+     CK_SLOT_ID slotId, CK_FLAGS flags, CK_VOID_PTR, CK_NOTIFY, CK_SESSION_HANDLE_PTR sessionHandle)
+ {
+@@ -45,7 +67,7 @@ CK_RV CloseSession(CK_SESSION_HANDLE sessionHandle)
+     }
+     const auto slotId = session->slotId;
+     runtime.sessions.erase(sessionHandle);
+-    std::erase_if(runtime.objects,
++    eraseMatchingEntries(runtime.objects,
+         [sessionHandle](const auto& entry)
+         {
+             return entry.second.ownerSession == sessionHandle;
+@@ -68,12 +90,12 @@ CK_RV CloseAllSessions(CK_SLOT_ID slotId)
+     {
+         return CKR_SLOT_ID_INVALID;
+     }
+-    std::erase_if(runtime.sessions,
++    eraseMatchingEntries(runtime.sessions,
+         [slotId](const auto& entry)
+         {
+             return entry.second.slotId == slotId;
+         });
+-    std::erase_if(runtime.objects,
++    eraseMatchingEntries(runtime.objects,
+         [slotId](const auto& entry)
+         {
+             return entry.second.slotId == slotId && entry.second.ownerSession != 0;
+@@ -185,7 +207,7 @@ CK_RV Logout(CK_SESSION_HANDLE sessionHandle)
+             session.matches.clear();
+         }
+     }
+-    std::erase_if(runtime.objects,
++    eraseMatchingEntries(runtime.objects,
+         [&](const auto& entry)
+         {
+             return entry.second.slotId == slot.id && entry.second.ownerSession &&
+diff --git a/src/storage/slots.cpp b/src/storage/slots.cpp
+index b6d7e80e9a72262ff69115ab7fdeb7591f93c9bf..1b9a79b57f3d064892d1db6ede21fd8da1509cf2 100644
+--- a/src/storage/slots.cpp
++++ b/src/storage/slots.cpp
+@@ -34,14 +34,14 @@ static std::optional<std::string> readPassword(const fs::path& path)
+         throw std::runtime_error("Invalid slot password file");
+     }
+     std::string value(buffer, static_cast<size_t>(input.gcount()));
+-    if (value.starts_with("\xEF\xBB\xBF"))
++    if (value.compare(0, 3, "\xEF\xBB\xBF") == 0)
+     {
+         value.erase(0, 3);
+     }
+-    if (value.ends_with('\n'))
++    if (!value.empty() && value.back() == '\n')
+     {
+         value.pop_back();
+-        if (value.ends_with('\r'))
++        if (!value.empty() && value.back() == '\r')
+         {
+             value.pop_back();
+         }
